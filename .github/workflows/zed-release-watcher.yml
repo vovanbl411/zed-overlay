@@ -1,0 +1,40 @@
+---
+name: Zed release watcher
+
+on:
+  schedule:
+    # 06:17 UTC: avoid the top-of-hour Actions load peak.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zed-release-watcher
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check stable Zed release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the overlay
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check overlay policy
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py
+
+      - name: Run unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+
+      - name: Check upstream stable release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_handoff.py | tee -a "$GITHUB_STEP_SUMMARY"
