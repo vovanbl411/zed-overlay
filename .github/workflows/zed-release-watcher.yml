@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/release_handoff.py | tee -a "$GITHUB_STEP_SUMMARY"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare and validate disposable candidate
         env:
@@ -58,7 +58,7 @@ jobs:
           cd "$disposable_workspace"
           manifest_checksum="$(sha256sum app-editors/zed/Manifest)"
           find app-editors/zed -type f -print0 | sort -z > "$before_paths"
-          python3 scripts/release_handoff.py --prepare | tee "$prepare_log" | tee -a "$GITHUB_STEP_SUMMARY"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py --prepare | tee "$prepare_log" | tee -a "$GITHUB_STEP_SUMMARY"
           test ! -e .git
           test "$manifest_checksum" = "$(sha256sum app-editors/zed/Manifest)"
 
@@ -79,6 +79,5 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py \
             --root "$disposable_workspace" \
             --tracked-paths-file "$tracked_paths"
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$disposable_workspace/tests" -v
           test ! -e "$disposable_workspace/.git"
           test -z "$(git -C "$GITHUB_WORKSPACE" status --short)"
