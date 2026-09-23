@@ -1,23 +1,18 @@
-diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
---- a/crates/zed/Cargo.toml
-+++ b/crates/zed/Cargo.toml
-@@ -120,6 +120,6 @@ go_to_line.workspace = true
- system_specs.workspace = true
- gpui = { workspace = true, features = ["input-latency-histogram", "profiler"] }
--gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland", "x11"]}
-+gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland"]}
- hdrhistogram.workspace = true
- image = { workspace = true, optional = true }
- itertools.workspace = true
-@@ -245,7 +245,6 @@
- gpui = { workspace = true, features = [
-     "input-latency-histogram",
-     "wayland",
--    "x11",
- ] }
- ashpd.workspace = true
- image.workspace = true
+diff --git a/crates/call/Cargo.toml b/crates/call/Cargo.toml
+index eafb713..03578ac 100644
+--- a/crates/call/Cargo.toml
++++ b/crates/call/Cargo.toml
+@@ -31,7 +31,7 @@ collections.workspace = true
+ fs.workspace = true
+ futures.workspace = true
+ feature_flags.workspace = true
+-gpui = { workspace = true, features = ["screen-capture"] }
++gpui.workspace = true
+ gpui_tokio.workspace = true
+ language.workspace = true
+ livekit_client.workspace = true
 diff --git a/crates/livekit_client/Cargo.toml b/crates/livekit_client/Cargo.toml
+index a229d39..a05a2f0 100644
 --- a/crates/livekit_client/Cargo.toml
 +++ b/crates/livekit_client/Cargo.toml
 @@ -26,7 +26,7 @@ audio.workspace = true
@@ -25,18 +20,77 @@ diff --git a/crates/livekit_client/Cargo.toml b/crates/livekit_client/Cargo.toml
  cpal.workspace = true
  futures.workspace = true
 -gpui = { workspace = true, features = ["screen-capture", "x11", "wayland"] }
-+gpui = { workspace = true, features = ["screen-capture", "wayland"] }
++gpui = { workspace = true, features = ["wayland"] }
  gpui_tokio.workspace = true
  http_client_tls.workspace = true
  image.workspace = true
-diff --git a/crates/gpui/Cargo.toml b/crates/gpui/Cargo.toml
---- a/crates/gpui/Cargo.toml
-+++ b/crates/gpui/Cargo.toml
-@@ -29,7 +29,7 @@ bench = ["test-support", "dep:criterion", "dep:hdrhistogram"]
- inspector = ["gpui_macros/inspector"]
- leak-detection = ["backtrace"]
--wayland = []
-+wayland = ["scap?/wayland"]
- x11 = [
-     "scap?/x11",
- ]
+@@ -51,7 +51,7 @@ livekit.workspace = true
+ tokio = { workspace = true, features = ["time"] }
+ webrtc-sys.workspace = true
+ 
+-[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
++[target.'cfg(target_os = "windows")'.dependencies]
+ scap.workspace = true
+ 
+ [target.'cfg(target_os = "macos")'.dependencies]
+diff --git a/crates/livekit_client/src/livekit_client/playback.rs b/crates/livekit_client/src/livekit_client/playback.rs
+index f00b647..d52287b 100644
+--- a/crates/livekit_client/src/livekit_client/playback.rs
++++ b/crates/livekit_client/src/livekit_client/playback.rs
+@@ -764,7 +764,7 @@ fn video_frame_buffer_to_webrtc(frame: ScreenCaptureFrame) -> Option<impl AsRef<
+     }
+ }
+ 
+-#[cfg(not(target_os = "macos"))]
++#[cfg(target_os = "windows")]
+ fn video_frame_buffer_to_webrtc(frame: ScreenCaptureFrame) -> Option<impl AsRef<dyn VideoBuffer>> {
+     use libwebrtc::native::yuv_helper::{abgr_to_nv12, argb_to_nv12};
+     use livekit::webrtc::prelude::NV12Buffer;
+@@ -822,6 +822,13 @@ fn video_frame_buffer_to_webrtc(frame: ScreenCaptureFrame) -> Option<impl AsRef<
+     }
+ }
+ 
++#[cfg(any(target_os = "linux", target_os = "freebsd"))]
++fn video_frame_buffer_to_webrtc(
++    _frame: ScreenCaptureFrame,
++) -> Option<impl AsRef<dyn VideoBuffer>> {
++    None::<livekit::webrtc::prelude::NV12Buffer>
++}
++
+ trait DeviceChangeListenerApi: Stream<Item = ()> + Sized {
+     fn new(input: bool) -> Result<Self>;
+ }
+diff --git a/crates/title_bar/Cargo.toml b/crates/title_bar/Cargo.toml
+index a6ee0a1..1492b76 100644
+--- a/crates/title_bar/Cargo.toml
++++ b/crates/title_bar/Cargo.toml
+@@ -43,7 +43,7 @@ command_palette_hooks.workspace = true
+ db.workspace = true
+ 
+ git_ui_core.workspace = true
+-gpui = { workspace = true, features = ["screen-capture"] }
++gpui.workspace = true
+ icons.workspace = true
+ livekit_client.workspace = true
+ notifications.workspace = true
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index 90ffe03..654e4d5 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -119,7 +119,7 @@ git_ui_core.workspace = true
+ go_to_line.workspace = true
+ system_specs.workspace = true
+ gpui = { workspace = true, features = ["input-latency-histogram", "profiler"] }
+-gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland", "x11"]}
++gpui_platform = {workspace = true, features=["font-kit", "wayland"]}
+ hdrhistogram.workspace = true
+ image = { workspace = true, optional = true }
+ itertools.workspace = true
+@@ -245,7 +245,6 @@ windows_resources = { path = "../windows_resources" }
+ gpui = { workspace = true, features = [
+     "input-latency-histogram",
+     "wayland",
+-    "x11",
+ ] }
+ ashpd.workspace = true
+ image.workspace = true
