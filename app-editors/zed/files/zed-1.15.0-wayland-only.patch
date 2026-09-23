@@ -9,7 +9,7 @@ diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
  hdrhistogram.workspace = true
  image = { workspace = true, optional = true }
  itertools.workspace = true
-@@ -243,7 +243,6 @@ gpui = { workspace = true, features = [
+@@ -245,7 +245,6 @@
  gpui = { workspace = true, features = [
      "input-latency-histogram",
      "wayland",
