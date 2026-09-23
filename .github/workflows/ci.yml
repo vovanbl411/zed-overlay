@@ -1,0 +1,25 @@
+---
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Overlay policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the overlay
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check overlay policy
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py
+
+      - name: Run unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
