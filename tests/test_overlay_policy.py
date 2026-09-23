@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS_DIRECTORY = str(Path(__file__).parents[1] / "scripts")
 if SCRIPTS_DIRECTORY not in sys.path:
     sys.path.insert(0, SCRIPTS_DIRECTORY)
 
-from overlay_policy import OverlayPolicyError, validate_overlay
+from overlay_policy import OverlayPolicyError, main, tracked_paths_from_file, validate_overlay
 
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
@@ -57,6 +60,36 @@ class OverlayPolicyTests(unittest.TestCase):
 
         self.assertTrue(ebuilds)
 
+    def test_reads_nul_separated_tracked_paths(self) -> None:
+        tracked_paths_file = self.root / "tracked-paths"
+        tracked_paths_file.write_bytes(b"metadata/layout.conf\0profiles/repo_name\0")
+
+        self.assertEqual(
+            tracked_paths_from_file(tracked_paths_file),
+            {"metadata/layout.conf", "profiles/repo_name"},
+        )
+
+    def test_policy_accepts_gitless_overlay_with_supplied_tracked_paths(self) -> None:
+        tracked_paths_file = self.root / "tracked-paths"
+        tracked_paths_file.write_bytes(b"metadata/layout.conf\0profiles/repo_name\0")
+
+        output = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "overlay_policy.py",
+                "--root",
+                str(self.root),
+                "--tracked-paths-file",
+                str(tracked_paths_file),
+            ],
+        ), contextlib.redirect_stdout(output):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("overlay policy: OK", output.getvalue())
+
     def test_policy_rejects_wrong_repository_name(self) -> None:
         (self.root / "profiles/repo_name").write_text("other-overlay\n", encoding="utf-8")
 
@@ -78,8 +111,24 @@ class OverlayPolicyTests(unittest.TestCase):
             validate_overlay(self.root, tracked_paths=())
 
     def test_policy_rejects_tracked_md5_cache(self) -> None:
+        tracked_paths_file = self.root / "tracked-paths"
+        tracked_paths_file.write_bytes(b"metadata/md5-cache/zed-1.15.0\0")
+
         with self.assertRaisesRegex(OverlayPolicyError, "metadata/md5-cache"):
-            validate_overlay(self.root, tracked_paths={"metadata/md5-cache/zed-1.15.0"})
+            validate_overlay(
+                self.root, tracked_paths=tracked_paths_from_file(tracked_paths_file)
+            )
+
+    def test_rejects_malformed_tracked_paths_file(self) -> None:
+        tracked_paths_file = self.root / "tracked-paths"
+        tracked_paths_file.write_bytes(b"valid\0\xff")
+
+        with self.assertRaisesRegex(OverlayPolicyError, "not valid UTF-8"):
+            tracked_paths_from_file(tracked_paths_file)
+
+    def test_rejects_unreadable_tracked_paths_file(self) -> None:
+        with self.assertRaisesRegex(OverlayPolicyError, "Could not read"):
+            tracked_paths_from_file(self.root / "missing-tracked-paths")
 
     def test_policy_rejects_patch_that_restores_x11(self) -> None:
         patch_path = self.root / "app-editors/zed/files/zed-1.15.0-wayland-only.patch"

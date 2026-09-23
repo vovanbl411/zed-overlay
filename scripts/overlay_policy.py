@@ -41,6 +41,23 @@ def git_tracked_paths(repository_root: Path) -> set[str]:
     }
 
 
+def tracked_paths_from_file(path: Path) -> set[str]:
+    """Read NUL-separated Git-tracked paths from a UTF-8 file."""
+    try:
+        contents = path.read_bytes()
+    except OSError as error:
+        raise OverlayPolicyError(
+            f"Could not read tracked paths file: {path}."
+        ) from error
+    try:
+        decoded = contents.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise OverlayPolicyError(
+            f"Tracked paths file is not valid UTF-8: {path}."
+        ) from error
+    return {tracked_path for tracked_path in decoded.split("\0") if tracked_path}
+
+
 def layout_settings(layout_path: Path) -> dict[str, str]:
     """Read non-comment key/value settings from layout.conf."""
     settings: dict[str, str] = {}
@@ -140,9 +157,19 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1],
         help="overlay repository root (default: this script's repository)",
     )
+    parser.add_argument(
+        "--tracked-paths-file",
+        type=Path,
+        help="NUL-separated UTF-8 paths from git ls-files -z",
+    )
     args = parser.parse_args()
     try:
-        ebuilds = validate_overlay(args.root)
+        tracked_paths = (
+            tracked_paths_from_file(args.tracked_paths_file)
+            if args.tracked_paths_file is not None
+            else None
+        )
+        ebuilds = validate_overlay(args.root, tracked_paths=tracked_paths)
     except OverlayPolicyError as error:
         print(f"overlay policy: FAILED: {error}")
         return 1
