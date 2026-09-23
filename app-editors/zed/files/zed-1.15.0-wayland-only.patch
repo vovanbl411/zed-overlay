@@ -1,0 +1,31 @@
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -119,7 +119,7 @@ go_to_line.workspace = true
+ system_specs.workspace = true
+ gpui = { workspace = true, features = ["input-latency-histogram", "profiler"] }
+-gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland", "x11"]}
++gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland"]}
+ hdrhistogram.workspace = true
+ image = { workspace = true, optional = true }
+ itertools.workspace = true
+@@ -243,7 +243,6 @@ gpui = { workspace = true, features = [
+ gpui = { workspace = true, features = [
+     "input-latency-histogram",
+     "wayland",
+-    "x11",
+ ] }
+ ashpd.workspace = true
+ image.workspace = true
+diff --git a/crates/livekit_client/Cargo.toml b/crates/livekit_client/Cargo.toml
+--- a/crates/livekit_client/Cargo.toml
++++ b/crates/livekit_client/Cargo.toml
+@@ -26,7 +26,7 @@ audio.workspace = true
+ collections.workspace = true
+ cpal.workspace = true
+ futures.workspace = true
+-gpui = { workspace = true, features = ["screen-capture", "x11", "wayland"] }
++gpui = { workspace = true, features = ["screen-capture", "wayland"] }
+ gpui_tokio.workspace = true
+ http_client_tls.workspace = true
+ image.workspace = true
