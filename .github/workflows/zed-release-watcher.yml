@@ -99,6 +99,13 @@ jobs:
               /bin/bash -e -c '
                 mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords
                 printf "%s\\n" \
+                  "[DEFAULT]" \
+                  "main-repo = gentoo" \
+                  "" \
+                  "[gentoo]" \
+                  "location = /var/db/repos/gentoo" \
+                  "auto-sync = no" \
+                  "" \
                   "[zed-overlay]" \
                   "location = /overlay" \
                   "masters = gentoo" \
