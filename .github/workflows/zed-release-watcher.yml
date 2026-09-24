@@ -36,14 +36,6 @@ jobs:
       - name: Run unit tests
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 
-      - name: Check upstream stable release
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py | tee -a "$GITHUB_STEP_SUMMARY"
-
       - name: Prepare and validate disposable candidate
         id: prepare-and-validate
         env:

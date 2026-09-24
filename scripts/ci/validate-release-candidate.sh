@@ -173,6 +173,7 @@ main() {
   find app-editors/zed -type f -print0 | sort -z > "$before_paths"
   PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py --prepare | tee "$prepare_log" | tee -a "$GITHUB_STEP_SUMMARY"
   test ! -e .git
+  test "$manifest_checksum" = "$(sha256sum app-editors/zed/Manifest)"
 
   if grep -Fxq 'Result: new-release' "$prepare_log"; then
     validate_candidate_paths "$before_paths"
