@@ -3,8 +3,7 @@
 `zed-overlay` — оверлей Gentoo для нативной сборки Zed через Portage. Текущий
 пакет — `app-editors/zed-1.21.0`, основанный на официальном ebuild Gentoo и
 адаптированный для сборки только с Wayland. Zed 1.21.0 прошёл automated release
-validation; последним полностью подтверждённым manual runtime baseline остаётся
-Zed 1.15.0.
+validation и manual Gentoo runtime acceptance.
 
 ## Структура репозитория
 
@@ -65,6 +64,3 @@ Production backend — Wayland; X11 production feature edges удалены. Lin
 screen capture намеренно отключён. Не включайте `scap/wayland` без отдельного
 решения, учитывающего цепочку зависимостей `pipewire-rs 0.8` и
 `zed-scap 0.0.8`.
-
-Runtime properties Zed 1.21.0 ещё требуют отдельного manual acceptance на
-Gentoo workstation.
