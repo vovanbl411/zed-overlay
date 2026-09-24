@@ -1,7 +1,7 @@
 # Repository Instructions
 
 This repository maintains the `zed-overlay` Gentoo overlay for a native Zed
-build. The current package is `app-editors/zed-1.15.0`, based on the official
+build. The current package is `app-editors/zed-1.21.0`, based on the official
 Gentoo ebuild and adapted for a Wayland-only production feature graph.
 
 ## Working rules
@@ -14,7 +14,9 @@ Gentoo ebuild and adapted for a Wayland-only production feature graph.
 - Do not enable `scap/wayland` without a separate, explicit decision that
   accounts for the `pipewire-rs 0.8` and `zed-scap 0.0.8` dependency chain.
 - Do not commit pregenerated `metadata/md5-cache/`. Generate the local Portage
-  cache with:
+  cache externally. The normal local refresh path is the optional Portage
+  post-sync hook at `contrib/portage/repo.postsync.d/50-zed-overlay-cache`; its
+  command is:
 
   ```sh
   egencache --repo=zed-overlay --update --external-cache-only
@@ -28,14 +30,15 @@ Gentoo ebuild and adapted for a Wayland-only production feature graph.
   gpatch --dry-run -p1 < path/to/patch
   ```
 
-## Existing gates
+## Validation boundaries
 
 - The patch applies with `gpatch --dry-run -p1`.
-- Portage resolves and builds `=app-editors/zed-1.15.0::zed-overlay`.
-- `scanelf` and `lddtree` show no linkage to `libX11`, `libxcb`, or
-  `xkbcommon-x11`.
-- `env -u DISPLAY /usr/libexec/zed-editor` starts Zed and renders its first
-  frame through native Wayland.
+- CI validates release preparation, dependency resolution, the version-specific
+  patch, handoff, and controlled publish flow. It deliberately does not perform
+  a full Zed build or runtime acceptance.
+- Manual Gentoo acceptance is required before a new release is treated as
+  runtime-validated: build the package, check `scanelf` and `lddtree`, and
+  verify native Wayland startup without unwanted X11 runtime linkage.
 
 Do not edit the ebuild, patch, or Manifest unless the task requires it. Preserve
 unrelated user changes and review the final diff before reporting completion.

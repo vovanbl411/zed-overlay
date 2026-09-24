@@ -1,17 +1,16 @@
 # zed-overlay
 
 `zed-overlay` — оверлей Gentoo для нативной сборки Zed через Portage. Текущий
-пакет — `app-editors/zed-1.15.0`. Он основан на официальном ebuild Gentoo и
-адаптирован для сборки только с Wayland.
+пакет — `app-editors/zed-1.21.0`, основанный на официальном ebuild Gentoo и
+адаптированный для сборки только с Wayland. Zed 1.21.0 прошёл automated release
+validation; последним полностью подтверждённым manual runtime baseline остаётся
+Zed 1.15.0.
 
 ## Структура репозитория
 
 ```text
 app-editors/zed/
-  files/zed-1.15.0-wayland-only.patch
-  Manifest
-  metadata.xml
-  zed-1.15.0.ebuild
+contrib/portage/repo.postsync.d/50-zed-overlay-cache
 metadata/layout.conf
 profiles/repo_name
 ```
@@ -29,32 +28,43 @@ location = /var/db/repos/zed-overlay
 sync-type = git
 sync-uri = https://github.com/vovanbl411/zed-overlay.git
 auto-sync = yes
+sync-hooks-only-on-change = yes
 ```
 
-Синхронизируйте репозиторий и создайте внешний кеш метаданных Portage:
+Один раз установите post-sync hook:
 
 ```sh
-sudo emaint sync -r zed-overlay
-sudo egencache --repo=zed-overlay --update --external-cache-only
+sudo install -Dm755 \
+  /var/db/repos/zed-overlay/contrib/portage/repo.postsync.d/50-zed-overlay-cache \
+  /etc/portage/repo.postsync.d/50-zed-overlay-cache
 ```
 
-Проверьте план установки и установите текущую версию пакета:
+Hook запускается Portage после sync `zed-overlay` и регенерирует внешний кеш
+метаданных. `metadata/md5-cache/` при этом не записывается в Git checkout.
+После однократной настройки для дальнейших обновлений достаточно обычного
+`emerge --sync`.
+
+Для первоначальной установки используйте пакет без привязки к версии, чтобы он
+попал в selected world set:
 
 ```sh
-emerge -pv =app-editors/zed-1.15.0::zed-overlay
-sudo emerge -av =app-editors/zed-1.15.0::zed-overlay
+sudo emerge -av app-editors/zed::zed-overlay
 ```
 
-Устанавливаются исполняемые файлы `/usr/bin/zedit` и
-`/usr/libexec/zed-editor`.
+После этого обычный workflow обновления выглядит так:
+
+```sh
+sudo emerge --sync
+emerge -pvuDN @world
+sudo emerge -avuDN @world
+```
 
 ## Политика Wayland-only
 
-Downstream-патч сохраняет Wayland и удаляет X11 из графа возможностей рабочей
-сборки. Проверено, что установленный исполняемый файл запускается без `DISPLAY`
-и не имеет runtime-зависимостей от `libX11`, `libxcb` или `xkbcommon-x11`.
-
-Локальная демонстрация экрана в Linux намеренно отключена в этой сборке. Zed
-1.15.0 не использует её в интерфейсе Wayland, а включение `scap/wayland`
-добавило бы устаревшую цепочку зависимостей `pipewire-rs 0.8` и
+Production backend — Wayland; X11 production feature edges удалены. Linux local
+screen capture намеренно отключён. Не включайте `scap/wayland` без отдельного
+решения, учитывающего цепочку зависимостей `pipewire-rs 0.8` и
 `zed-scap 0.0.8`.
+
+Runtime properties Zed 1.21.0 ещё требуют отдельного manual acceptance на
+Gentoo workstation.
