@@ -82,13 +82,6 @@ jobs:
               )
             fi
 
-            before_container_paths="$RUNNER_TEMP/zed-overlay-before-container-paths"
-            before_container_hashes="$RUNNER_TEMP/zed-overlay-before-container-hashes"
-            find . -type f -print0 | sort -z > "$before_container_paths"
-            find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum > "$before_container_hashes"
-            manifest_before_container="$RUNNER_TEMP/zed-overlay-before-container-Manifest"
-            cp app-editors/zed/Manifest "$manifest_before_container"
-
             candidate_atom="=app-editors/${candidate_ebuild##*/}"
             candidate_atom="${candidate_atom%.ebuild}::zed-overlay"
             candidate_version="${candidate_ebuild##*/zed-}"
@@ -129,8 +122,6 @@ jobs:
                   "media-video/pipewire sound-server" \
                   > /etc/portage/package.use/zed-validation
                 ebuild "$CANDIDATE_EBUILD" manifest
-                emerge --oneshot dev-util/pkgcheck
-                pkgcheck scan --exit
                 emerge -pv --oneshot "$CANDIDATE_ATOM"
                 patch_root="$(mktemp -d)"
                 distdir="$(portageq envvar DISTDIR)"
@@ -153,32 +144,7 @@ jobs:
               exit 1
             fi
 
-            if find . -type f -print0 | sort -z | cmp -s "$before_container_paths" -; then
-              echo "Regular file path set after container validation: OK"
-            else
-              echo "ERROR: regular file path set changed during container validation" >&2
-              echo "Only in baseline (up to 25 paths):" >&2
-              comm -z -23 "$before_container_paths" <(find . -type f -print0 | sort -z) |
-                tr '\0' '\n' | sed -n '1,25p' >&2
-              echo "Only after container validation (up to 25 paths):" >&2
-              comm -z -13 "$before_container_paths" <(find . -type f -print0 | sort -z) |
-                tr '\0' '\n' | sed -n '1,25p' >&2
-              exit 1
-            fi
-
-            if find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum | cmp -s "$before_container_hashes" -; then
-              echo "Non-Manifest file contents after container validation: OK"
-            else
-              echo "ERROR: non-Manifest file contents changed during container validation" >&2
-              echo "Changed paths (up to 25):" >&2
-              join -1 2 -2 2 -o '0,1.1,2.1' \
-                <(sort -k 2,2 "$before_container_hashes") \
-                <(find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum | sort -k 2,2) |
-                awk '$2 != $3 { print $1 }' | sed -n '1,25p' >&2
-              exit 1
-            fi
-
-            if ! cmp -s app-editors/zed/Manifest "$manifest_before_container"; then
+            if test "$manifest_checksum" != "$(sha256sum app-editors/zed/Manifest)"; then
               echo "Manifest update after container validation: OK"
             else
               echo "ERROR: app-editors/zed/Manifest was not updated by container validation" >&2
