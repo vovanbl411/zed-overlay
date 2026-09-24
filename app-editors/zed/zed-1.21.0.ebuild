@@ -189,19 +189,32 @@ src_prepare() {
 	envsubst < "crates/zed/resources/zed.desktop.in" > ${APP_ID}.desktop || die
 
 	# Cargo offline fetch workaround
-	local ASYNC_PROCESS_COMMIT="0b6d6713570af61806e1e5cb40e0f757cb93fd9d"
+	local ASYNC_PROCESS_COMMIT ASYNC_TASK_COMMIT CALLOOP_COMMIT LIVEKIT_COMMIT
+	local NOTIFY_COMMIT WIN_CAP_COMMIT TREE_SITTER_COMMIT
+	git_crate_commit() {
+		local variable_name=${1} crate=${2} value=${GIT_CRATES[${crate}]}
+		[[ ${value} =~ ^[^\;]+\;([0-9a-f]{7,64})\;[^\;]+$ ]] \
+			|| die "Malformed or missing GIT_CRATES entry: ${crate}"
+		printf -v "${variable_name}" '%s' "${BASH_REMATCH[1]}" \
+			|| die "Could not set Git revision for: ${crate}"
+	}
+	git_crate_commit ASYNC_PROCESS_COMMIT async-process
+	git_crate_commit ASYNC_TASK_COMMIT async-task
+	git_crate_commit CALLOOP_COMMIT calloop
+	git_crate_commit LIVEKIT_COMMIT livekit
+	git_crate_commit NOTIFY_COMMIT notify
+	git_crate_commit WIN_CAP_COMMIT windows-capture
+	git_crate_commit TREE_SITTER_COMMIT tree-sitter
+
 	local ASYNC_PROCESS_GIT="async-process = { git = \"https://github.com/zed-industries/async-process.git\", rev = \"${ASYNC_PROCESS_COMMIT}\""
 	local ASYNC_PROCESS_PATH="async-process = { path = \"${WORKDIR}/async-process-${ASYNC_PROCESS_COMMIT}\""
 
-	local ASYNC_TASK_COMMIT="b4486cd71e4e94fbda54ce6302444de14f4d190e"
 	local ASYNC_TASK_GIT="async-task = { git = \"https://github.com/smol-rs/async-task.git\", rev = \"${ASYNC_TASK_COMMIT}\""
 	local ASYNC_TASK_PATH="async-task = { path = \"${WORKDIR}/async-task-${ASYNC_TASK_COMMIT}\""
 
-	local CALLOOP_COMMIT="eb6b4fd17b9af5ecc226546bdd04185391b3e265"
 	local CALLOOP_GIT="calloop = { git = \"https://github.com/zed-industries/calloop\""
 	local CALLOOP_PATH="calloop = { path = \"${WORKDIR}/calloop-${CALLOOP_COMMIT}\""
 
-	local LIVEKIT_COMMIT="0a1c519cfce9b365229026b55de9b9dbdb6fed3c"
 	local LIVEKIT_GIT="livekit = { git = \"https://github.com/zed-industries/livekit-rust-sdks\", rev = \"${LIVEKIT_COMMIT}\""
 	local LIVEKIT_PATH="livekit = { path = \"${WORKDIR}/livekit-rust-sdks-${LIVEKIT_COMMIT}/livekit\""
 
@@ -211,17 +224,14 @@ src_prepare() {
 	local WEBRTC_SYS_GIT="webrtc-sys = { git = \"https://github.com/zed-industries/livekit-rust-sdks\", rev = \"${LIVEKIT_COMMIT}\""
 	local WEBRTC_SYS_PATH="webrtc-sys = { path = \"${WORKDIR}/livekit-rust-sdks-${LIVEKIT_COMMIT}/webrtc-sys\""
 
-	local NOTIFY_COMMIT="d842f16b2716bd60f09caf3ae3a894237ab38f54"
 	local NOTIFY_GIT="notify = { git = \"https://github.com/zed-industries/notify\", rev = \"${NOTIFY_COMMIT}\""
 	local NOTIFY_PATH="notify = { path = \"${WORKDIR}/notify-${NOTIFY_COMMIT}/notify\""
 	local NOTIFY_TYPES_GIT="notify-types = { git = \"https://github.com/zed-industries/notify\", rev = \"${NOTIFY_COMMIT}\""
 	local NOTIFY_TYPES_PATH="notify-types = { path = \"${WORKDIR}/notify-${NOTIFY_COMMIT}/notify-types\""
 
-	local WIN_CAP_COMMIT="f0d6c1b6691db75461b732f6d5ff56eed002eeb9"
 	local WIN_CAP_GIT="windows-capture = { git = \"https://github.com/zed-industries/windows-capture.git\", rev = \"${WIN_CAP_COMMIT}\""
 	local WIN_CAP_PATH="windows-capture = { path = \"${WORKDIR}/windows-capture-${WIN_CAP_COMMIT}\""
 
-	local TREE_SITTER_COMMIT="43623ec9bf0eaaf7113285c46e8a09018f181b18"
 	local TREE_SITTER_LANGUAGE_GIT="tree-sitter-language = { git = \"https://github.com/tree-sitter/tree-sitter\", rev = \"${TREE_SITTER_COMMIT}\""
 	local TREE_SITTER_LANGUAGE_PATH="tree-sitter-language = { path = \"${WORKDIR}/tree-sitter-${TREE_SITTER_COMMIT}/crates/language\""
 
