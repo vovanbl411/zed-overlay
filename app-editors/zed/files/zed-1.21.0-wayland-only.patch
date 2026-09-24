@@ -1,0 +1,54 @@
+diff --git a/crates/call/Cargo.toml b/crates/call/Cargo.toml
+index eafb713..03578ac 100644
+--- a/crates/call/Cargo.toml
++++ b/crates/call/Cargo.toml
+@@ -34 +34 @@ feature_flags.workspace = true
+-gpui = { workspace = true, features = ["screen-capture"] }
++gpui.workspace = true
+diff --git a/crates/livekit_client/Cargo.toml b/crates/livekit_client/Cargo.toml
+index 3aa30a7..24899f3 100644
+--- a/crates/livekit_client/Cargo.toml
++++ b/crates/livekit_client/Cargo.toml
+@@ -29 +29 @@ futures.workspace = true
+-gpui = { workspace = true, features = ["screen-capture", "x11", "wayland"] }
++gpui = { workspace = true, features = ["wayland"] }
+@@ -54 +54 @@ webrtc-sys.workspace = true
+-[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
++[target.'cfg(target_os = "windows")'.dependencies]
+diff --git a/crates/livekit_client/src/livekit_client/playback.rs b/crates/livekit_client/src/livekit_client/playback.rs
+index 1febcd4..a1f8cd0 100644
+--- a/crates/livekit_client/src/livekit_client/playback.rs
++++ b/crates/livekit_client/src/livekit_client/playback.rs
+@@ -764 +764 @@ fn video_frame_buffer_to_webrtc(frame: ScreenCaptureFrame) -> Option<impl AsRef<
+-#[cfg(not(target_os = "macos"))]
++#[cfg(target_os = "windows")]
+@@ -821,0 +822,7 @@ fn video_frame_buffer_to_webrtc(frame: ScreenCaptureFrame) -> Option<impl AsRef<
++#[cfg(any(target_os = "linux", target_os = "freebsd"))]
++fn video_frame_buffer_to_webrtc(
++    _frame: ScreenCaptureFrame,
++) -> Option<impl AsRef<dyn VideoBuffer>> {
++    None::<livekit::webrtc::prelude::NV12Buffer>
++}
++
+diff --git a/crates/title_bar/Cargo.toml b/crates/title_bar/Cargo.toml
+index 57aceb8..2b5fd94 100644
+--- a/crates/title_bar/Cargo.toml
++++ b/crates/title_bar/Cargo.toml
+@@ -46 +46 @@ git_ui_core.workspace = true
+-gpui = { workspace = true, features = ["screen-capture"] }
++gpui.workspace = true
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index c706989..86101ea 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -124,6 +124 @@ gpui = { workspace = true, features = ["profiler", "stacker"] }
+-gpui_platform = { workspace = true, features = [
+-    "screen-capture",
+-    "font-kit",
+-    "wayland",
+-    "x11",
+-] }
++gpui_platform = { workspace = true, features = ["font-kit", "wayland"] }
+@@ -247 +242 @@ windows_resources = { path = "../windows_resources" }
+-gpui = { workspace = true, features = ["profiler", "wayland", "x11"] }
++gpui = { workspace = true, features = ["profiler", "wayland"] }
