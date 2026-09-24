@@ -1,8 +1,8 @@
 # Repository Instructions
 
 This repository maintains the `zed-overlay` Gentoo overlay for a native Zed
-build. The current package is `app-editors/zed-1.21.0`, based on the official
-Gentoo ebuild and adapted for a Wayland-only production feature graph.
+build. Its current stable ebuild is based on the official Gentoo ebuild and
+adapted for a Wayland-only production feature graph.
 
 ## Working rules
 
@@ -12,7 +12,7 @@ Gentoo ebuild and adapted for a Wayland-only production feature graph.
   them after the change.
 - Do not restore the X11 backend or its production feature edges.
 - Do not enable `scap/wayland` without a separate, explicit decision that
-  accounts for the `pipewire-rs 0.8` and `zed-scap 0.0.8` dependency chain.
+  accounts for the corresponding PipeWire/scap dependency chain.
 - Do not commit pregenerated `metadata/md5-cache/`. Generate the local Portage
   cache externally. The normal local refresh path is the optional Portage
   post-sync hook at `contrib/portage/repo.postsync.d/50-zed-overlay-cache`; its

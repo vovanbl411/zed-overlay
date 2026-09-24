@@ -16,6 +16,9 @@ GIT_CRATE_ENTRY = re.compile(r"^\s*\[([^][]+)\]='([^']*)'\s*$")
 LOCAL_ASSIGNMENT = re.compile(
     r'^\s*local\s+([A-Z][A-Z0-9_]*)="((?:[^"\\]|\\.)*)"\s*$'
 )
+GIT_CRATE_COMMIT_ASSIGNMENT = re.compile(
+    r"^\s*git_crate_commit ([A-Za-z0-9_-]+) ([A-Z][A-Z0-9_]*)\s*$"
+)
 COMMIT = re.compile(r"^[0-9a-f]{7,64}$")
 VARIABLE = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
 GIT_DECLARATION = re.compile(
@@ -153,7 +156,9 @@ def expand_variables(
     return VARIABLE.sub(replace, value).replace(r'\"', '"')
 
 
-def parse_offline_substitutions(ebuild_text: str) -> list[OfflineSubstitution]:
+def parse_offline_substitutions(
+    ebuild_text: str, git_crates: dict[str, GitCrate]
+) -> list[OfflineSubstitution]:
     """Validate the existing explicit local Cargo replacement convention."""
     variables: dict[str, str] = {}
     for line in ebuild_text.splitlines():
@@ -163,6 +168,18 @@ def parse_offline_substitutions(ebuild_text: str) -> list[OfflineSubstitution]:
             if name in variables:
                 raise CargoSnapshotError(f"Duplicate local variable {name!r}.")
             variables[name] = value
+
+    for line in ebuild_text.splitlines():
+        match = GIT_CRATE_COMMIT_ASSIGNMENT.fullmatch(line)
+        if match is None:
+            continue
+        crate, name = match.groups()
+        try:
+            variables[name] = git_crates[crate].commit
+        except KeyError as error:
+            raise CargoSnapshotError(
+                f"Offline commit {name!r} references missing GIT_CRATES entry {crate!r}."
+            ) from error
 
     substitutions: list[OfflineSubstitution] = []
     for name, raw_declaration in variables.items():
@@ -235,15 +252,7 @@ def validate(ebuild_path: Path, source_path: Path) -> None:
     cargo_toml_path = source_path / "Cargo.toml"
     validate_cargo_toml(cargo_toml_path)
     cargo_toml = read_text(cargo_toml_path)
-    for substitution in parse_offline_substitutions(ebuild_text):
-        snapshot = ebuild_crates.get(substitution.crate)
-        if snapshot is None:
-            errors.append(f"{substitution.crate}: offline substitution has no GIT_CRATES entry.")
-        elif snapshot.repository != substitution.repository or snapshot.commit != substitution.commit:
-            errors.append(
-                f"{substitution.crate}: offline substitution differs from GIT_CRATES "
-                f"(repository {substitution.repository}, revision {substitution.commit})."
-            )
+    for substitution in parse_offline_substitutions(ebuild_text, ebuild_crates):
         if substitution.declaration not in cargo_toml:
             errors.append(
                 f"{substitution.crate}: expected offline Git declaration is absent from upstream Cargo.toml."

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -8,6 +10,11 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "check_zed_cargo_snapshot.py"
+EBUILD_PATHS = tuple(
+    path
+    for path in (Path(__file__).parents[1] / "app-editors" / "zed").glob("zed-*.ebuild")
+    if "git_crate_commit()" in path.read_text(encoding="utf-8")
+)
 SPEC = importlib.util.spec_from_file_location("check_zed_cargo_snapshot", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 CHECKER = importlib.util.module_from_spec(SPEC)
@@ -31,7 +38,8 @@ def write_fixture(root: Path) -> tuple[Path, Path]:
 )
 
 src_prepare() {{
-\tlocal EXAMPLE_COMMIT="{COMMIT}"
+\tlocal EXAMPLE_COMMIT
+\tgit_crate_commit example EXAMPLE_COMMIT
 \tlocal EXAMPLE_GIT="example = {{ git = \\"{REPOSITORY}.git\\", rev = \\"${{EXAMPLE_COMMIT}}\\""
 \tlocal EXAMPLE_PATH="example = {{ path = \\"${{WORKDIR}}/repository-${{EXAMPLE_COMMIT}}\\""
 }}
@@ -69,8 +77,78 @@ class CargoSnapshotTests(unittest.TestCase):
     def validate(self) -> None:
         CHECKER.validate(self.ebuild, self.source)
 
+    def run_ebuild_commit_helper(self, ebuild_text: str, crate: str) -> subprocess.CompletedProcess[str]:
+        git_crates = re.search(
+            r"declare -A GIT_CRATES=\(.*?^\)\n", ebuild_text, flags=re.MULTILINE | re.DOTALL
+        )
+        helper = re.search(
+            r"\tgit_crate_commit\(\) \{.*?^\t}\n", ebuild_text, flags=re.MULTILINE | re.DOTALL
+        )
+        assert git_crates is not None
+        assert helper is not None
+        script = (
+            git_crates.group(0)
+            + "die() { exit 1; }\n"
+            + helper.group(0)
+            + f"result=\ngit_crate_commit {crate} result\nprintf '%s' \"${{result}}\"\n"
+        )
+        return subprocess.run(["bash", "-c", script], text=True, capture_output=True, check=False)
+
     def test_accepts_matching_snapshot(self) -> None:
         self.validate()
+
+    def test_ebuild_helper_extracts_commit_from_git_crates(self) -> None:
+        self.assertTrue(EBUILD_PATHS)
+        for ebuild_path in EBUILD_PATHS:
+            ebuild_text = ebuild_path.read_text(encoding="utf-8")
+            expected = CHECKER.parse_git_crates(ebuild_text)["async-process"].commit
+
+            result = self.run_ebuild_commit_helper(ebuild_text, "async-process")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, expected)
+
+    def test_ebuild_helper_fails_closed_for_missing_or_malformed_entry(self) -> None:
+        self.assertTrue(EBUILD_PATHS)
+        ebuild_text = EBUILD_PATHS[0].read_text(encoding="utf-8")
+
+        missing = self.run_ebuild_commit_helper(
+            ebuild_text.replace("\t[async-process]=", "\t[removed-async-process]=", 1), "async-process"
+        )
+        malformed = self.run_ebuild_commit_helper(
+            ebuild_text.replace(";async-process-%commit%'", "'", 1), "async-process"
+        )
+        extra_field = self.run_ebuild_commit_helper(
+            ebuild_text.replace(";async-process-%commit%'", ";async-process-%commit%;extra'", 1),
+            "async-process",
+        )
+
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertNotEqual(malformed.returncode, 0)
+        self.assertNotEqual(extra_field.returncode, 0)
+
+    def test_ebuild_offline_substitutions_are_formed_from_git_crates(self) -> None:
+        self.assertTrue(EBUILD_PATHS)
+        expected_crates = {
+            "async-process",
+            "async-task",
+            "calloop",
+            "libwebrtc",
+            "livekit",
+            "notify",
+            "notify-types",
+            "tree-sitter-language",
+            "webrtc-sys",
+            "windows-capture",
+        }
+        for ebuild_path in EBUILD_PATHS:
+            ebuild_text = ebuild_path.read_text(encoding="utf-8")
+            git_crates = CHECKER.parse_git_crates(ebuild_text)
+            substitutions = CHECKER.parse_offline_substitutions(ebuild_text, git_crates)
+
+            self.assertEqual({item.crate for item in substitutions}, expected_crates)
+            for substitution in substitutions:
+                self.assertEqual(substitution.commit, git_crates[substitution.crate].commit)
 
     def test_rejects_upstream_revision_change(self) -> None:
         lock = self.source / "Cargo.lock"
@@ -107,14 +185,14 @@ source = "git+https://github.com/example/new?rev={COMMIT}#{COMMIT}"
         with self.assertRaisesRegex(CHECKER.CargoSnapshotError, "repository differs"):
             self.validate()
 
-    def test_rejects_offline_substitution_commit_mismatch(self) -> None:
+    def test_rejects_offline_commit_source_without_git_crates_entry(self) -> None:
         ebuild = self.ebuild.read_text(encoding="utf-8")
         self.ebuild.write_text(
-            ebuild.replace('local EXAMPLE_COMMIT="' + COMMIT + '"', 'local EXAMPLE_COMMIT="' + OTHER_COMMIT + '"'),
+            ebuild.replace("git_crate_commit example EXAMPLE_COMMIT", "git_crate_commit absent EXAMPLE_COMMIT"),
             encoding="utf-8",
         )
 
-        with self.assertRaisesRegex(CHECKER.CargoSnapshotError, "offline substitution differs"):
+        with self.assertRaisesRegex(CHECKER.CargoSnapshotError, "references missing GIT_CRATES entry"):
             self.validate()
 
     def test_rejects_missing_offline_declaration(self) -> None:
