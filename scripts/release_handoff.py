@@ -58,6 +58,8 @@ def result_lines(result: HandoffResult) -> tuple[str, ...]:
     if result.preparation is not None:
         action = "would-prepare" if result.preparation.outcome == "dry-run" else "prepared"
         lines.append(f"Preparation: {action}")
+        if result.preparation.plan.reuse_existing_patch:
+            lines.append("Candidate patch: reusing existing version-specific patch")
     return tuple(lines)
 
 

@@ -115,14 +115,37 @@ class ReleaseHandoffTests(unittest.TestCase):
         prepare_release.assert_not_called()
         self.assertEqual(self.snapshot(), before)
 
-    def test_existing_candidate_target_is_reported_without_overwrite(self) -> None:
-        self.candidate_patch().write_bytes(b"existing candidate\n")
+    def test_new_release_reuses_existing_candidate_patch(self) -> None:
+        candidate_patch = b"adapted candidate patch\n"
+        self.candidate_patch().write_bytes(candidate_patch)
 
-        with self.assertRaisesRegex(HANDOFF.HandoffError, "Candidate preparation failed"):
-            HANDOFF.run_handoff(self.root, FakeClient([release("v1.16.0")]), prepare=False)
+        result = HANDOFF.run_handoff(self.root, FakeClient([release("v1.16.0")]), prepare=True)
 
+        assert result.preparation is not None
+        self.assertEqual(result.preparation.outcome, "prepared")
+        self.assertTrue(result.preparation.plan.reuse_existing_patch)
+        self.assertEqual(self.candidate_ebuild().read_bytes(), b"ebuild 1.15.0\n")
+        self.assertEqual(self.candidate_patch().read_bytes(), candidate_patch)
+        self.assertIn(
+            "Candidate patch: reusing existing version-specific patch",
+            HANDOFF.result_lines(result),
+        )
+
+    def test_new_release_dry_run_reports_existing_candidate_patch(self) -> None:
+        candidate_patch = b"adapted candidate patch\n"
+        self.candidate_patch().write_bytes(candidate_patch)
+
+        result = HANDOFF.run_handoff(self.root, FakeClient([release("v1.16.0")]), prepare=False)
+
+        assert result.preparation is not None
+        self.assertEqual(result.preparation.outcome, "dry-run")
+        self.assertTrue(result.preparation.plan.reuse_existing_patch)
         self.assertFalse(self.candidate_ebuild().exists())
-        self.assertEqual(self.candidate_patch().read_bytes(), b"existing candidate\n")
+        self.assertEqual(self.candidate_patch().read_bytes(), candidate_patch)
+        self.assertIn(
+            "Candidate patch: reusing existing version-specific patch",
+            HANDOFF.result_lines(result),
+        )
 
     def test_watcher_failure_does_not_start_preparation(self) -> None:
         client = FakeClient(error=HANDOFF.watcher.WatcherError("simulated watcher failure"))

@@ -81,6 +81,19 @@ class PrepareZedReleaseTests(unittest.TestCase):
         self.assertEqual(result.outcome, "dry-run")
         self.assertEqual(self.file_snapshot(), before)
 
+    def test_dry_run_reuses_existing_candidate_patch_without_changes(self) -> None:
+        self.candidate_patch().write_bytes(b"adapted candidate patch\n")
+        before = self.file_snapshot()
+
+        result = PREPARE.prepare_release(self.root, "1.16.0", dry_run=True)
+
+        self.assertEqual(result.outcome, "dry-run")
+        self.assertTrue(result.plan.reuse_existing_patch)
+        self.assertTrue(
+            any("Would reuse existing patch" in line for line in PREPARE.summary_lines(result))
+        )
+        self.assertEqual(self.file_snapshot(), before)
+
     def test_rejects_equal_version_without_changing_files(self) -> None:
         before = self.file_snapshot()
 
@@ -111,14 +124,31 @@ class PrepareZedReleaseTests(unittest.TestCase):
         self.assertEqual(self.candidate_ebuild().read_bytes(), b"existing candidate ebuild\n")
         self.assertFalse(self.candidate_patch().exists())
 
-    def test_rejects_existing_target_patch_without_creating_ebuild(self) -> None:
-        self.candidate_patch().write_bytes(b"existing candidate patch\n")
+    def test_reuses_existing_candidate_patch_and_creates_only_ebuild(self) -> None:
+        candidate_patch = b"adapted candidate patch\n"
+        self.candidate_patch().write_bytes(candidate_patch)
 
-        with self.assertRaisesRegex(PREPARE.ReleasePreparationError, "already exists"):
-            PREPARE.prepare_release(self.root, "1.16.0", dry_run=False)
+        result = PREPARE.prepare_release(self.root, "1.16.0", dry_run=False)
+
+        self.assertEqual(result.outcome, "prepared")
+        self.assertTrue(result.plan.reuse_existing_patch)
+        self.assertEqual(self.candidate_ebuild().read_bytes(), b"current ebuild\n")
+        self.assertEqual(self.candidate_patch().read_bytes(), candidate_patch)
+
+    def test_ebuild_creation_failure_preserves_existing_candidate_patch(self) -> None:
+        candidate_patch = b"adapted candidate patch\n"
+        self.candidate_patch().write_bytes(candidate_patch)
+
+        with patch.object(
+            PREPARE,
+            "write_new_file",
+            side_effect=PREPARE.ReleasePreparationError("simulated ebuild write failure"),
+        ):
+            with self.assertRaisesRegex(PREPARE.ReleasePreparationError, "simulated"):
+                PREPARE.prepare_release(self.root, "1.16.0", dry_run=False)
 
         self.assertFalse(self.candidate_ebuild().exists())
-        self.assertEqual(self.candidate_patch().read_bytes(), b"existing candidate patch\n")
+        self.assertEqual(self.candidate_patch().read_bytes(), candidate_patch)
 
     def test_rolls_back_ebuild_if_patch_creation_fails(self) -> None:
         original_write = PREPARE.write_new_file

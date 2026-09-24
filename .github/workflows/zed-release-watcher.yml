@@ -69,11 +69,18 @@ jobs:
             comm -z -13 "$before_paths" <(find app-editors/zed -type f -print0 | sort -z)
           )
           if grep -Fxq 'Result: new-release' "$prepare_log"; then
-            test "${#candidate_paths[@]}" -eq 2
             candidate_ebuild="$(printf '%s\n' "${candidate_paths[@]}" | grep -Ex 'app-editors/zed/zed-[0-9]+\.[0-9]+\.[0-9]+\.ebuild')"
             candidate_patch="app-editors/zed/files/$(basename "${candidate_ebuild%.ebuild}")-wayland-only.patch"
             test -f "$candidate_ebuild"
             test -f "$candidate_patch"
+            if [ "${#candidate_paths[@]}" -eq 1 ]; then
+              test "${candidate_paths[0]}" = "$candidate_ebuild"
+            else
+              test "${#candidate_paths[@]}" -eq 2
+              printf '%s\n' "${candidate_paths[@]}" | sort | cmp -s - <(
+                printf '%s\n' "$candidate_ebuild" "$candidate_patch" | sort
+              )
+            fi
 
             before_container_paths="$RUNNER_TEMP/zed-overlay-before-container-paths"
             before_container_hashes="$RUNNER_TEMP/zed-overlay-before-container-hashes"
