@@ -138,20 +138,78 @@ jobs:
                 source_archive="$distdir/zed-${CANDIDATE_VERSION}.tar.gz"
                 test -f "$source_archive"
                 tar -xzf "$source_archive" -C "$patch_root"
-                patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"
+                if patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"; then
+                  echo "Wayland patch dry-run: OK"
+                else
+                  echo "ERROR: Wayland patch dry-run failed" >&2
+                  exit 1
+                fi
               '
 
-            test ! -e .git
-            find . -type f -print0 | sort -z | cmp -s "$before_container_paths" -
-            find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum | cmp -s "$before_container_hashes" -
-            ! cmp -s app-editors/zed/Manifest "$manifest_before_container"
+            if test ! -e .git; then
+              echo "Git-less workspace after container validation: OK"
+            else
+              echo "ERROR: disposable workspace gained .git" >&2
+              exit 1
+            fi
+
+            if find . -type f -print0 | sort -z | cmp -s "$before_container_paths" -; then
+              echo "Regular file path set after container validation: OK"
+            else
+              echo "ERROR: regular file path set changed during container validation" >&2
+              echo "Only in baseline (up to 25 paths):" >&2
+              comm -z -23 "$before_container_paths" <(find . -type f -print0 | sort -z) |
+                tr '\0' '\n' | sed -n '1,25p' >&2
+              echo "Only after container validation (up to 25 paths):" >&2
+              comm -z -13 "$before_container_paths" <(find . -type f -print0 | sort -z) |
+                tr '\0' '\n' | sed -n '1,25p' >&2
+              exit 1
+            fi
+
+            if find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum | cmp -s "$before_container_hashes" -; then
+              echo "Non-Manifest file contents after container validation: OK"
+            else
+              echo "ERROR: non-Manifest file contents changed during container validation" >&2
+              echo "Changed paths (up to 25):" >&2
+              join -1 2 -2 2 -o '0,1.1,2.1' \
+                <(sort -k 2,2 "$before_container_hashes") \
+                <(find . -type f ! -path './app-editors/zed/Manifest' -print0 | sort -z | xargs -0 sha256sum | sort -k 2,2) |
+                awk '$2 != $3 { print $1 }' | sed -n '1,25p' >&2
+              exit 1
+            fi
+
+            if ! cmp -s app-editors/zed/Manifest "$manifest_before_container"; then
+              echo "Manifest update after container validation: OK"
+            else
+              echo "ERROR: app-editors/zed/Manifest was not updated by container validation" >&2
+              exit 1
+            fi
           else
             grep -Fxq 'Result: up-to-date' "$prepare_log"
             test "${#candidate_paths[@]}" -eq 0
           fi
 
-          PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py \
+          if PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py \
             --root "$disposable_workspace" \
-            --tracked-paths-file "$tracked_paths"
-          test ! -e "$disposable_workspace/.git"
-          test -z "$(git -C "$GITHUB_WORKSPACE" status --short)"
+            --tracked-paths-file "$tracked_paths"; then
+            echo "Overlay policy for disposable workspace: OK"
+          else
+            echo "ERROR: overlay policy failed for disposable workspace" >&2
+            exit 1
+          fi
+
+          if test ! -e "$disposable_workspace/.git"; then
+            echo "Git-less workspace after overlay policy: OK"
+          else
+            echo "ERROR: disposable workspace gained .git after overlay policy" >&2
+            exit 1
+          fi
+
+          source_status="$(git -C "$GITHUB_WORKSPACE" status --short)"
+          if test -z "$source_status"; then
+            echo "Source workspace remains clean: OK"
+          else
+            echo "ERROR: source workspace was modified" >&2
+            printf '%s\n' "$source_status" | sed -n '1,25p' >&2
+            exit 1
+          fi
