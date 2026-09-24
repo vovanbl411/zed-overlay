@@ -68,9 +68,13 @@ class ReleaseHandoffTests(unittest.TestCase):
         return self.root / "app-editors/zed/files" / f"zed-{version}-wayland-only.patch"
 
     def snapshot(self) -> dict[Path, bytes]:
+        return self.snapshot_at(self.root)
+
+    @staticmethod
+    def snapshot_at(root: Path) -> dict[Path, bytes]:
         return {
-            path.relative_to(self.root): path.read_bytes()
-            for path in self.root.rglob("*")
+            path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*")
             if path.is_file()
         }
 
@@ -96,6 +100,12 @@ class ReleaseHandoffTests(unittest.TestCase):
         (destination / "release.json").write_text(
             json.dumps(metadata), encoding="utf-8"
         )
+
+    def fresh_checkout(self) -> Path:
+        checkout = self.root / "fresh-checkout"
+        create_overlay(checkout)
+        (checkout / "app-editors/zed/Manifest").write_bytes(b"base manifest\n")
+        return checkout
 
     def test_new_release_default_mode_validates_without_changing_files(self) -> None:
         before = self.snapshot()
@@ -347,3 +357,114 @@ class ReleaseHandoffTests(unittest.TestCase):
             HANDOFF.create_release_handoff(
                 self.root, destination, "1.16.0", "a" * 40
             )
+
+    def test_applies_initial_handoff(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+
+        applied = HANDOFF.apply_release_handoff(
+            checkout, handoff, expected_base_commit="a" * 40
+        )
+
+        self.assertEqual((checkout / "app-editors/zed/Manifest").read_bytes(), b"manifest\n")
+        self.assertEqual(self.candidate_ebuild().read_bytes(), b"candidate ebuild\n")
+        self.assertEqual(
+            (checkout / "app-editors/zed/zed-1.16.0.ebuild").read_bytes(),
+            b"candidate ebuild\n",
+        )
+        self.assertEqual(
+            (checkout / "app-editors/zed/files/zed-1.16.0-wayland-only.patch").read_bytes(),
+            b"candidate patch\n",
+        )
+        self.assertEqual(applied.release_tag, "v1.16.0")
+        self.assertEqual(applied.candidate_version, "1.16.0")
+        self.assertEqual(applied.branch, "automation/zed-v1.16.0")
+        self.assertTrue(applied.patch_created)
+
+    def test_applies_resumed_handoff_without_replacing_matching_patch(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        existing_patch = checkout / "app-editors/zed/files/zed-1.16.0-wayland-only.patch"
+        existing_patch.write_bytes(b"candidate patch\n")
+
+        applied = HANDOFF.apply_release_handoff(
+            checkout, handoff, expected_base_commit="a" * 40
+        )
+
+        self.assertFalse(applied.patch_created)
+        self.assertEqual(existing_patch.read_bytes(), b"candidate patch\n")
+        self.assertEqual((checkout / "app-editors/zed/Manifest").read_bytes(), b"manifest\n")
+        self.assertEqual(
+            (checkout / "app-editors/zed/zed-1.16.0.ebuild").read_bytes(),
+            b"candidate ebuild\n",
+        )
+
+    def test_rejects_different_existing_patch_before_mutation(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        (checkout / "app-editors/zed/files/zed-1.16.0-wayland-only.patch").write_bytes(
+            b"different patch\n"
+        )
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="a" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)
+
+    def test_rejects_existing_candidate_ebuild_before_mutation(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        (checkout / "app-editors/zed/zed-1.16.0.ebuild").write_bytes(b"existing\n")
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="a" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)
+
+    def test_rejects_destination_manifest_symlink_before_mutation(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        manifest = checkout / "app-editors/zed/Manifest"
+        manifest.unlink()
+        os.symlink("zed-1.15.0.ebuild", manifest)
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="a" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)
+
+    def test_rejects_destination_patch_symlink_before_mutation(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        patch_path = checkout / "app-editors/zed/files/zed-1.16.0-wayland-only.patch"
+        os.symlink("zed-1.15.0-wayland-only.patch", patch_path)
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="a" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)
+
+    def test_rejects_expected_base_mismatch_before_apply(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="b" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)
+
+    def test_rejects_invalid_handoff_before_apply(self) -> None:
+        handoff = self.create_handoff()
+        checkout = self.fresh_checkout()
+        (handoff / "unexpected").write_text("no", encoding="utf-8")
+        before = self.snapshot_at(checkout)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.apply_release_handoff(checkout, handoff, expected_base_commit="a" * 40)
+
+        self.assertEqual(self.snapshot_at(checkout), before)

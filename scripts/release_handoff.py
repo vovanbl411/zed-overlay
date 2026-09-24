@@ -40,6 +40,16 @@ class HandoffResult:
     preparation: preparer.PrepareResult | None
 
 
+@dataclass(frozen=True)
+class AppliedHandoff:
+    """The deterministic values produced by a validated handoff apply."""
+
+    release_tag: str
+    candidate_version: str
+    branch: str
+    patch_created: bool
+
+
 def run_handoff(
     repository_root: Path, client: object, *, prepare: bool
 ) -> HandoffResult:
@@ -206,7 +216,7 @@ def _read_release_metadata(path: Path) -> dict[str, object]:
 
 def validate_release_handoff(
     destination: Path, *, expected_base_commit: str | None = None
-) -> None:
+) -> dict[str, object]:
     """Fail closed unless a handoff contains exactly the expected artifact."""
     if expected_base_commit is not None:
         _validate_base_commit(expected_base_commit)
@@ -253,6 +263,102 @@ def validate_release_handoff(
 
     expected_files = {Path("release.json"), *_artifact_paths(candidate_version)}
     _validate_artifact_layout(destination, expected_files)
+    return expected_metadata
+
+
+def _require_directory(path: Path, description: str) -> None:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError as error:
+        raise HandoffError(f"Missing {description}: {path}") from error
+    if not stat.S_ISDIR(mode):
+        raise HandoffError(f"{description} must be a directory: {path}")
+
+
+def _path_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _write_new_file(path: Path, content: bytes) -> None:
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except OSError as error:
+        raise HandoffError(f"Could not create handoff destination file: {path}") from error
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(content)
+
+
+def apply_release_handoff(
+    repository_root: Path, handoff_directory: Path, *, expected_base_commit: str
+) -> AppliedHandoff:
+    """Apply only validated package files to a fresh base checkout."""
+    metadata = validate_release_handoff(
+        handoff_directory, expected_base_commit=expected_base_commit
+    )
+    candidate_version = metadata["candidate_version"]
+    release_tag = metadata["release_tag"]
+    if not isinstance(candidate_version, str) or not isinstance(release_tag, str):
+        raise HandoffError("Validated handoff metadata has an invalid release identity")
+    manifest_path, candidate_ebuild_path, candidate_patch_path = _artifact_paths(
+        candidate_version
+    )
+
+    package_directory = repository_root / "app-editors/zed"
+    files_directory = package_directory / "files"
+    _require_directory(repository_root / "app-editors", "package parent directory")
+    _require_directory(package_directory, "package directory")
+    _require_directory(files_directory, "package files directory")
+    _require_regular_file(repository_root / manifest_path, "destination Manifest")
+
+    destination_ebuild = repository_root / candidate_ebuild_path
+    destination_patch = repository_root / candidate_patch_path
+    if _path_exists(destination_ebuild):
+        raise HandoffError(f"Candidate ebuild already exists: {destination_ebuild}")
+
+    artifact_manifest = handoff_directory / manifest_path
+    artifact_ebuild = handoff_directory / candidate_ebuild_path
+    artifact_patch = handoff_directory / candidate_patch_path
+    _require_regular_file(artifact_manifest, "handoff Manifest")
+    _require_regular_file(artifact_ebuild, "handoff candidate ebuild")
+    _require_regular_file(artifact_patch, "handoff candidate patch")
+    manifest_content = artifact_manifest.read_bytes()
+    ebuild_content = artifact_ebuild.read_bytes()
+    patch_content = artifact_patch.read_bytes()
+
+    patch_created = not _path_exists(destination_patch)
+    if not patch_created:
+        _require_regular_file(destination_patch, "destination candidate patch")
+        if destination_patch.read_bytes() != patch_content:
+            raise HandoffError(
+                f"Existing candidate patch differs from handoff: {destination_patch}"
+            )
+
+    _write_new_file(destination_ebuild, ebuild_content)
+    if patch_created:
+        _write_new_file(destination_patch, patch_content)
+    (repository_root / manifest_path).write_bytes(manifest_content)
+    return AppliedHandoff(
+        release_tag=release_tag,
+        candidate_version=candidate_version,
+        branch=f"automation/zed-{release_tag}",
+        patch_created=patch_created,
+    )
+
+
+def _write_github_output(path: Path, result: AppliedHandoff) -> None:
+    values = {
+        "release_tag": result.release_tag,
+        "candidate_version": result.candidate_version,
+        "branch": result.branch,
+        "patch_created": str(result.patch_created).lower(),
+    }
+    with path.open("a", encoding="utf-8") as output:
+        for key, value in values.items():
+            output.write(f"{key}={value}\n")
 
 
 def main() -> int:
@@ -262,9 +368,12 @@ def main() -> int:
     action.add_argument("--prepare", action="store_true")
     action.add_argument("--create-handoff", type=Path, metavar="DESTINATION")
     action.add_argument("--validate-handoff", type=Path, metavar="DESTINATION")
+    action.add_argument("--apply-handoff", type=Path, metavar="DESTINATION")
     parser.add_argument("--candidate-version")
     parser.add_argument("--base-commit")
     parser.add_argument("--expected-base-commit")
+    parser.add_argument("--repository-root", type=Path)
+    parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     if args.create_handoff is not None:
         if args.candidate_version is None or args.base_commit is None:
@@ -286,7 +395,28 @@ def main() -> int:
             print(f"Release handoff error: {error}", file=sys.stderr)
             return 1
         return 0
-    if args.candidate_version is not None or args.base_commit is not None or args.expected_base_commit is not None:
+    if args.apply_handoff is not None:
+        if args.repository_root is None or args.expected_base_commit is None:
+            parser.error("--apply-handoff requires --repository-root and --expected-base-commit")
+        try:
+            applied = apply_release_handoff(
+                args.repository_root,
+                args.apply_handoff,
+                expected_base_commit=args.expected_base_commit,
+            )
+            if args.github_output is not None:
+                _write_github_output(args.github_output, applied)
+        except HandoffError as error:
+            print(f"Release handoff error: {error}", file=sys.stderr)
+            return 1
+        return 0
+    if (
+        args.candidate_version is not None
+        or args.base_commit is not None
+        or args.expected_base_commit is not None
+        or args.repository_root is not None
+        or args.github_output is not None
+    ):
         parser.error("handoff metadata options require a handoff action")
     try:
         result = run_handoff(
