@@ -84,6 +84,8 @@ jobs:
 
             candidate_atom="=app-editors/${candidate_ebuild##*/}"
             candidate_atom="${candidate_atom%.ebuild}::zed-overlay"
+            candidate_version="${candidate_ebuild##*/zed-}"
+            candidate_version="${candidate_version%.ebuild}"
             docker create --name zed-portage "$GENTOO_PORTAGE_IMAGE" /bin/true
             cleanup() {
               docker rm -f zed-portage >/dev/null 2>&1 || true
@@ -95,9 +97,11 @@ jobs:
               --workdir /overlay \
               --env CANDIDATE_ATOM="$candidate_atom" \
               --env CANDIDATE_EBUILD="/overlay/$candidate_ebuild" \
+              --env CANDIDATE_PATCH="/overlay/$candidate_patch" \
+              --env CANDIDATE_VERSION="$candidate_version" \
               "$GENTOO_STAGE3_IMAGE" \
               /bin/bash -e -c '
-                mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords
+                mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
                 printf "%s\\n" \
                   "[DEFAULT]" \
                   "main-repo = gentoo" \
@@ -113,10 +117,17 @@ jobs:
                   > /etc/portage/repos.conf/zed-overlay.conf
                 printf "%s ~amd64\\n" "$CANDIDATE_ATOM" \
                   > /etc/portage/package.accept_keywords/zed-candidate
+                printf "%s\\n" \
+                  "media-libs/vulkan-loader wayland" \
+                  "media-video/pipewire sound-server" \
+                  > /etc/portage/package.use/zed-validation
                 ebuild "$CANDIDATE_EBUILD" manifest
                 emerge --oneshot dev-util/pkgcheck
                 pkgcheck scan --exit
                 emerge -pv --oneshot "$CANDIDATE_ATOM"
+                patch_root="$(mktemp -d)"
+                tar -xzf "${DISTDIR}/zed-${CANDIDATE_VERSION}.tar.gz" -C "$patch_root"
+                patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"
               '
 
             test ! -e .git
