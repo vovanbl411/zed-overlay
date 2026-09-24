@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+[ "${1:-}" = "zed-overlay" ] || exit 0
+
+exec egencache \
+    --update \
+    --external-cache-only \
+    --repo=zed-overlay
