@@ -26,6 +26,17 @@ Automation does not compile or runtime-test Zed. Full build and runtime
 acceptance remain a manual gate on a real Gentoo workstation before a new
 release is treated as runtime-validated.
 
+## Technical debt
+
+Release preparation currently copies the previous ebuild, but its
+version-sensitive Cargo Git dependency snapshot (`GIT_CRATES` and related
+offline path substitutions) is not synchronized automatically with the new
+upstream `Cargo.lock` and `Cargo.toml`. `emerge -pv` does not prove that the
+full offline Cargo source graph is correct, so a manual full build remains a
+required acceptance gate. Before the next Zed release, decide how to check or
+reconcile that snapshot automatically or semi-automatically; this fix makes no
+decision about the implementation.
+
 ### Portage sync integration
 
 A stale external metadata cache caused `masked by: corruption` and hid the
