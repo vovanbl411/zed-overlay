@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -71,6 +73,29 @@ class ReleaseHandoffTests(unittest.TestCase):
             for path in self.root.rglob("*")
             if path.is_file()
         }
+
+    def create_handoff_source(self, version: str = "1.16.0") -> None:
+        (self.root / "app-editors/zed/Manifest").write_bytes(b"manifest\n")
+        self.candidate_ebuild(version).write_bytes(b"candidate ebuild\n")
+        self.candidate_patch(version).write_bytes(b"candidate patch\n")
+
+    def create_handoff(
+        self, version: str = "1.16.0", destination_name: str = "release-handoff"
+    ) -> Path:
+        self.create_handoff_source(version)
+        destination = self.root / destination_name
+        HANDOFF.create_release_handoff(
+            self.root, destination, version, "a" * 40
+        )
+        return destination
+
+    def handoff_metadata(self, destination: Path) -> dict[str, object]:
+        return json.loads((destination / "release.json").read_text(encoding="utf-8"))
+
+    def write_handoff_metadata(self, destination: Path, metadata: dict[str, object]) -> None:
+        (destination / "release.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
 
     def test_new_release_default_mode_validates_without_changing_files(self) -> None:
         before = self.snapshot()
@@ -186,3 +211,139 @@ class ReleaseHandoffTests(unittest.TestCase):
         self.assertEqual(result.watch_result.upstream_release.version, (1, 10, 0))
         assert result.preparation is not None
         self.assertEqual(result.preparation.plan.candidate_version, (1, 10, 0))
+
+    def test_creates_valid_handoff_with_exact_allowlist_and_preserved_files(self) -> None:
+        destination = self.create_handoff()
+
+        self.assertEqual(
+            {
+                path.relative_to(destination)
+                for path in destination.rglob("*")
+                if path.is_file()
+            },
+            {
+                Path("release.json"),
+                Path("app-editors/zed/Manifest"),
+                Path("app-editors/zed/zed-1.16.0.ebuild"),
+                Path("app-editors/zed/files/zed-1.16.0-wayland-only.patch"),
+            },
+        )
+        for relative_path in (
+            Path("app-editors/zed/Manifest"),
+            Path("app-editors/zed/zed-1.16.0.ebuild"),
+            Path("app-editors/zed/files/zed-1.16.0-wayland-only.patch"),
+        ):
+            self.assertEqual(
+                (destination / relative_path).read_bytes(),
+                (self.root / relative_path).read_bytes(),
+            )
+        self.assertEqual(
+            self.handoff_metadata(destination),
+            {
+                "schema_version": 1,
+                "base_commit": "a" * 40,
+                "release_tag": "v1.16.0",
+                "candidate_version": "1.16.0",
+                "manifest_path": "app-editors/zed/Manifest",
+                "candidate_ebuild_path": "app-editors/zed/zed-1.16.0.ebuild",
+                "candidate_patch_path": "app-editors/zed/files/zed-1.16.0-wayland-only.patch",
+            },
+        )
+        HANDOFF.validate_release_handoff(destination, expected_base_commit="a" * 40)
+
+    def test_rejects_symlink_handoff_source(self) -> None:
+        self.create_handoff_source()
+        manifest = self.root / "app-editors/zed/Manifest"
+        manifest.unlink()
+        os.symlink("zed-1.16.0.ebuild", manifest)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.create_release_handoff(
+                self.root, self.root / "release-handoff", "1.16.0", "a" * 40
+            )
+
+    def test_rejects_unexpected_extra_file(self) -> None:
+        destination = self.create_handoff()
+        (destination / "unexpected").write_text("no", encoding="utf-8")
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_portage_cache_inside_handoff(self) -> None:
+        destination = self.create_handoff()
+        cache = destination / "metadata/md5-cache"
+        cache.mkdir(parents=True)
+        (cache / "app-editors").write_text("cache", encoding="utf-8")
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_symlink_inside_handoff(self) -> None:
+        destination = self.create_handoff()
+        os.symlink("release.json", destination / "unexpected-link")
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_missing_manifest(self) -> None:
+        destination = self.create_handoff()
+        (destination / "app-editors/zed/Manifest").unlink()
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_malformed_and_extra_key_release_json(self) -> None:
+        destination = self.create_handoff()
+        (destination / "release.json").write_text("{", encoding="utf-8")
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+        destination = self.create_handoff("1.17.0", "release-handoff-extra")
+        metadata = self.handoff_metadata(destination)
+        metadata["extra"] = "not allowed"
+        self.write_handoff_metadata(destination, metadata)
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_version_tag_mismatch(self) -> None:
+        destination = self.create_handoff()
+        metadata = self.handoff_metadata(destination)
+        metadata["release_tag"] = "v1.16.1"
+        self.write_handoff_metadata(destination, metadata)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_candidate_path_mismatch(self) -> None:
+        destination = self.create_handoff()
+        metadata = self.handoff_metadata(destination)
+        metadata["candidate_patch_path"] = "app-editors/zed/files/other.patch"
+        self.write_handoff_metadata(destination, metadata)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_invalid_base_sha(self) -> None:
+        destination = self.create_handoff()
+        metadata = self.handoff_metadata(destination)
+        metadata["base_commit"] = "A" * 40
+        self.write_handoff_metadata(destination, metadata)
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination)
+
+    def test_rejects_expected_base_commit_mismatch(self) -> None:
+        destination = self.create_handoff()
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.validate_release_handoff(destination, expected_base_commit="b" * 40)
+
+    def test_rejects_existing_handoff_destination(self) -> None:
+        self.create_handoff_source()
+        destination = self.root / "release-handoff"
+        destination.mkdir()
+
+        with self.assertRaises(HANDOFF.HandoffError):
+            HANDOFF.create_release_handoff(
+                self.root, destination, "1.16.0", "a" * 40
+            )

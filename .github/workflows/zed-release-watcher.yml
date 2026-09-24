@@ -19,6 +19,8 @@ jobs:
     name: Check stable Zed release
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      handoff_ready: ${{ steps.prepare-and-validate.outputs.handoff_ready }}
     env:
       GENTOO_PORTAGE_IMAGE: gentoo/portage@sha256:ce69e5b771bfe9404731e846b835346c34f2c82817ac3626f13af198689a1961
       GENTOO_STAGE3_IMAGE: gentoo/stage3@sha256:d8536e52677e3efe4caf048ca588bc685bc2d24d7fdfc882de1cdc6d38c81d96
@@ -43,6 +45,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare and validate disposable candidate
+        id: prepare-and-validate
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
@@ -52,6 +55,7 @@ jobs:
           disposable_workspace="$RUNNER_TEMP/zed-overlay"
           before_paths="$RUNNER_TEMP/zed-overlay-before-paths"
           prepare_log="$RUNNER_TEMP/zed-overlay-prepare.log"
+          echo "handoff_ready=false" >> "$GITHUB_OUTPUT"
 
           git -C "$GITHUB_WORKSPACE" ls-files -z > "$tracked_paths"
           mkdir -p "$disposable_workspace"
@@ -179,3 +183,51 @@ jobs:
             printf '%s\n' "$source_status" | sed -n '1,25p' >&2
             exit 1
           fi
+
+          if grep -Fxq 'Result: new-release' "$prepare_log"; then
+            handoff_directory="$RUNNER_TEMP/release-handoff"
+            PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+              --create-handoff "$handoff_directory" \
+              --candidate-version "$candidate_version" \
+              --base-commit "$GITHUB_SHA"
+            echo "Sanitized release handoff: OK"
+            echo "handoff_ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload release handoff
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+          if-no-files-found: error
+          retention-days: 14
+
+  validate-release-handoff:
+    name: Validate release handoff
+    needs: check
+    if: needs.check.outputs.handoff_ready == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download release handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Validate release handoff boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+            --validate-handoff "$RUNNER_TEMP/release-handoff" \
+            --expected-base-commit "$GITHUB_SHA"
+          echo "Release handoff boundary: OK"
