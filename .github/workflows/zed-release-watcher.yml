@@ -97,13 +97,15 @@ jobs:
               --env CANDIDATE_EBUILD="/overlay/$candidate_ebuild" \
               "$GENTOO_STAGE3_IMAGE" \
               /bin/bash -e -c '
-                mkdir -p /etc/portage/repos.conf
+                mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords
                 printf "%s\\n" \
                   "[zed-overlay]" \
                   "location = /overlay" \
                   "masters = gentoo" \
                   "auto-sync = no" \
                   > /etc/portage/repos.conf/zed-overlay.conf
+                printf "%s ~amd64\\n" "$CANDIDATE_ATOM" \
+                  > /etc/portage/package.accept_keywords/zed-candidate
                 ebuild "$CANDIDATE_EBUILD" manifest
                 emerge --oneshot dev-util/pkgcheck
                 pkgcheck scan --exit
