@@ -37,6 +37,8 @@ def write_fixture(root: Path) -> tuple[Path, Path]:
 \t[example]='{REPOSITORY};{COMMIT};repository-%commit%'
 )
 
+WEBRTC_COMMIT="0001d84-4"
+
 src_prepare() {{
 \tlocal EXAMPLE_COMMIT
 \tgit_crate_commit example EXAMPLE_COMMIT
@@ -59,6 +61,12 @@ source = "git+{REPOSITORY}.git?rev={COMMIT}#{COMMIT}"
     (source / "Cargo.toml").write_text(
         f'''[patch.crates-io]
 example = {{ git = "{REPOSITORY}.git", rev = "{COMMIT}" }}
+''',
+        encoding="utf-8",
+    )
+    (source / "corgi.toml").write_text(
+        '''[tools.webrtc-prebuilt]
+version = "0001d84-4"
 ''',
         encoding="utf-8",
     )
@@ -94,8 +102,55 @@ class CargoSnapshotTests(unittest.TestCase):
         )
         return subprocess.run(["bash", "-c", script], text=True, capture_output=True, check=False)
 
-    def test_accepts_matching_snapshot(self) -> None:
+    def test_accepts_matching_snapshot_and_webrtc_commit(self) -> None:
         self.validate()
+
+    def test_rejects_upstream_webrtc_version_drift(self) -> None:
+        (self.source / "corgi.toml").write_text(
+            '''[tools.webrtc-prebuilt]
+version = "0001f00-7"
+''',
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            CHECKER.CargoSnapshotError,
+            "(?s)WEBRTC_COMMIT differs from upstream corgi.toml.*ebuild: 0001d84-4.*upstream: 0001f00-7",
+        ):
+            self.validate()
+
+    def test_rejects_missing_webrtc_commit(self) -> None:
+        self.ebuild.write_text(
+            self.ebuild.read_text(encoding="utf-8").replace('WEBRTC_COMMIT="0001d84-4"\n', ""),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CHECKER.CargoSnapshotError, "Missing WEBRTC_COMMIT"):
+            self.validate()
+
+    def test_rejects_missing_or_malformed_corgi_toml(self) -> None:
+        corgi_toml = self.source / "corgi.toml"
+        cases = {
+            "missing": None,
+            "malformed": "[tools.webrtc-prebuilt\n",
+            "missing-version": "[tools.webrtc-prebuilt]\n",
+        }
+        for case, contents in cases.items():
+            with self.subTest(case=case):
+                if contents is None:
+                    corgi_toml.unlink()
+                else:
+                    corgi_toml.write_text(contents, encoding="utf-8")
+
+                with self.assertRaises(CHECKER.CargoSnapshotError):
+                    self.validate()
+
+                corgi_toml.write_text(
+                    '''[tools.webrtc-prebuilt]
+version = "0001d84-4"
+''',
+                    encoding="utf-8",
+                )
 
     def test_ebuild_helper_extracts_commit_from_git_crates(self) -> None:
         self.assertTrue(EBUILD_PATHS)

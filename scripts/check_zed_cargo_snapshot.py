@@ -19,6 +19,8 @@ LOCAL_ASSIGNMENT = re.compile(
 GIT_CRATE_COMMIT_ASSIGNMENT = re.compile(
     r"^\s*git_crate_commit ([A-Za-z0-9_-]+) ([A-Z][A-Z0-9_]*)\s*$"
 )
+WEBRTC_COMMIT_ASSIGNMENT = re.compile(r'^\s*WEBRTC_COMMIT="([^"]*)"\s*$')
+WEBRTC_COMMIT_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMMIT = re.compile(r"^[0-9a-f]{7,64}$")
 VARIABLE = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
 GIT_DECLARATION = re.compile(
@@ -50,6 +52,40 @@ def read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise CargoSnapshotError(f"Could not read {path} as UTF-8.") from error
+
+
+def parse_webrtc_commit(ebuild_text: str) -> str:
+    """Read the single explicit WebRTC prebuilt pin from the ebuild."""
+    assignments = [
+        line for line in ebuild_text.splitlines() if re.match(r"^\s*WEBRTC_COMMIT\s*=", line)
+    ]
+    if not assignments:
+        raise CargoSnapshotError("Missing WEBRTC_COMMIT assignment.")
+    if len(assignments) != 1:
+        raise CargoSnapshotError("WEBRTC_COMMIT is defined more than once.")
+    match = WEBRTC_COMMIT_ASSIGNMENT.fullmatch(assignments[0])
+    if match is None or not WEBRTC_COMMIT_VALUE.fullmatch(match.group(1)):
+        raise CargoSnapshotError("Malformed WEBRTC_COMMIT assignment.")
+    return match.group(1)
+
+
+def parse_upstream_webrtc_version(path: Path) -> str:
+    """Read the WebRTC prebuilt version from the exact upstream source tree."""
+    try:
+        with path.open("rb") as corgi_file:
+            corgi_toml = tomllib.load(corgi_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise CargoSnapshotError(f"Could not parse {path}.") from error
+    tools = corgi_toml.get("tools")
+    if not isinstance(tools, dict):
+        raise CargoSnapshotError("corgi.toml has no tools table.")
+    webrtc_prebuilt = tools.get("webrtc-prebuilt")
+    if not isinstance(webrtc_prebuilt, dict):
+        raise CargoSnapshotError("corgi.toml has no tools.webrtc-prebuilt table.")
+    version = webrtc_prebuilt.get("version")
+    if not isinstance(version, str) or not version:
+        raise CargoSnapshotError("corgi.toml has no non-empty tools.webrtc-prebuilt.version.")
+    return version
 
 
 def canonical_repository(value: str) -> str:
@@ -245,9 +281,17 @@ def compare_snapshots(upstream: dict[str, GitCrate], ebuild: dict[str, GitCrate]
 def validate(ebuild_path: Path, source_path: Path) -> None:
     """Validate a candidate ebuild against one exact extracted upstream source tree."""
     ebuild_text = read_text(ebuild_path)
+    webrtc_commit = parse_webrtc_commit(ebuild_text)
+    upstream_webrtc_version = parse_upstream_webrtc_version(source_path / "corgi.toml")
     lock_crates = parse_lock(source_path / "Cargo.lock")
     ebuild_crates = parse_git_crates(ebuild_text)
     errors = compare_snapshots(lock_crates, ebuild_crates)
+    if webrtc_commit != upstream_webrtc_version:
+        errors.append(
+            "WEBRTC_COMMIT differs from upstream corgi.toml\n"
+            f"ebuild: {webrtc_commit}\n"
+            f"upstream: {upstream_webrtc_version}"
+        )
 
     cargo_toml_path = source_path / "Cargo.toml"
     validate_cargo_toml(cargo_toml_path)
