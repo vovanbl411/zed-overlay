@@ -36,6 +36,7 @@ class ReleasePlan:
     source_patch: Path
     target_ebuild: Path
     target_patch: Path
+    reuse_existing_patch: bool
 
 
 @dataclass(frozen=True)
@@ -76,9 +77,13 @@ def plan_release(repository_root: Path, candidate_version: Version) -> ReleasePl
     candidate_name = f"zed-{version_text(candidate_version)}"
     target_ebuild = package_dir / f"{candidate_name}.ebuild"
     target_patch = package_dir / "files" / f"{candidate_name}-wayland-only.patch"
-    for target in (target_ebuild, target_patch):
-        if target.exists():
-            raise ReleasePreparationError(f"Candidate target already exists: {target}.")
+    if target_ebuild.exists() or target_ebuild.is_symlink():
+        raise ReleasePreparationError(f"Candidate target already exists: {target_ebuild}.")
+    reuse_existing_patch = target_patch.exists() or target_patch.is_symlink()
+    if reuse_existing_patch and (not target_patch.is_file() or target_patch.is_symlink()):
+        raise ReleasePreparationError(
+            f"Candidate patch must be a regular file: {target_patch}."
+        )
 
     ebuilds = stable_ebuilds(repository_root)
     if not ebuilds:
@@ -100,6 +105,7 @@ def plan_release(repository_root: Path, candidate_version: Version) -> ReleasePl
         source_patch=source_patch,
         target_ebuild=target_ebuild,
         target_patch=target_patch,
+        reuse_existing_patch=reuse_existing_patch,
     )
 
 
@@ -145,12 +151,15 @@ def prepare_release(
 
     try:
         source_ebuild = plan.source.path.read_bytes()
-        source_patch = plan.source_patch.read_bytes()
+        source_patch = None if plan.reuse_existing_patch else plan.source_patch.read_bytes()
     except OSError as error:
         raise ReleasePreparationError("Could not read source candidate files.") from error
 
     write_new_file(plan.target_ebuild, source_ebuild)
+    if plan.reuse_existing_patch:
+        return PrepareResult("prepared", plan)
     try:
+        assert source_patch is not None
         write_new_file(plan.target_patch, source_patch)
     except ReleasePreparationError:
         remove_created_file(plan.target_ebuild)
@@ -161,14 +170,26 @@ def prepare_release(
 def summary_lines(result: PrepareResult) -> tuple[str, ...]:
     """Render a concise local preparation summary."""
     action = "Would create" if result.outcome == "dry-run" else "Created"
+    patch_action = "Would reuse" if result.outcome == "dry-run" else "Reused"
+    patch_line = (
+        f"{patch_action} existing patch: {result.plan.target_patch}"
+        if result.plan.reuse_existing_patch
+        else f"{action} patch: {result.plan.target_patch}"
+    )
+    patch_note = (
+        "The existing patch is preserved and still requires "
+        "gpatch --dry-run -p1 against the new upstream source tree."
+        if result.plan.reuse_existing_patch
+        else "The copied patch is only a candidate and still requires "
+        "gpatch --dry-run -p1 against the new upstream source tree."
+    )
     return (
         f"Source version: {version_text(result.plan.source.version)}",
         f"Candidate version: {version_text(result.plan.candidate_version)}",
         f"{action} ebuild: {result.plan.target_ebuild}",
-        f"{action} patch: {result.plan.target_patch}",
+        patch_line,
         "Manifest was not updated.",
-        "The copied patch is only a candidate and still requires "
-        "gpatch --dry-run -p1 against the new upstream source tree.",
+        patch_note,
     )
 
 
