@@ -126,7 +126,11 @@ jobs:
                 pkgcheck scan --exit
                 emerge -pv --oneshot "$CANDIDATE_ATOM"
                 patch_root="$(mktemp -d)"
-                tar -xzf "${DISTDIR}/zed-${CANDIDATE_VERSION}.tar.gz" -C "$patch_root"
+                distdir="$(portageq envvar DISTDIR)"
+                test -n "$distdir"
+                source_archive="$distdir/zed-${CANDIDATE_VERSION}.tar.gz"
+                test -f "$source_archive"
+                tar -xzf "$source_archive" -C "$patch_root"
                 patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"
               '
 
