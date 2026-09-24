@@ -30,14 +30,13 @@ X11 `DISPLAY`. Zed 1.21.0 is runtime-validated.
 
 ## Technical debt
 
-Release preparation currently copies the previous ebuild, but its
-version-sensitive Cargo Git dependency snapshot (`GIT_CRATES` and related
-offline path substitutions) is not synchronized automatically with the new
-upstream `Cargo.lock` and `Cargo.toml`. `emerge -pv` does not prove that the
-full offline Cargo source graph is correct, so a manual full build remains a
-required acceptance gate. Before the next Zed release, decide how to check or
-reconcile that snapshot automatically or semi-automatically; this fix makes no
-decision about the implementation.
+Release preparation still copies the previous ebuild, but automation now
+fail-closes when its version-sensitive Cargo Git dependency snapshot
+(`GIT_CRATES` and related offline path substitutions) differs from the exact
+upstream `Cargo.lock` or `Cargo.toml`. Automation only detects drift; a human
+must reconcile the ebuild snapshot. `emerge -pv` does not prove that the full
+offline Cargo source graph is correct, so a manual full build remains a
+required acceptance gate.
 
 ### Portage sync integration
 
@@ -49,7 +48,5 @@ post-sync hook to refresh the external cache automatically; it does not put
 
 ## Current next step
 
-Before the next Zed release, check and synchronize the version-sensitive Cargo
-Git dependency snapshot (`GIT_CRATES` and offline path substitutions) with the
-upstream `Cargo.lock` and `Cargo.toml`. This is the already recorded technical
-debt; no implementation decision has been made.
+For future Zed release candidates, use the Cargo Git dependency snapshot gate
+to detect drift, then reconcile any reported ebuild changes manually.
