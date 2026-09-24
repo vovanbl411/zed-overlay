@@ -133,6 +133,9 @@ jobs:
                 source_archive="$distdir/zed-${CANDIDATE_VERSION}.tar.gz"
                 test -f "$source_archive"
                 tar -xzf "$source_archive" -C "$patch_root"
+                PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_zed_cargo_snapshot.py \
+                  --ebuild "$CANDIDATE_EBUILD" \
+                  --source "$patch_root/zed-${CANDIDATE_VERSION}"
                 if patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"; then
                   echo "Wayland patch dry-run: OK"
                 else
