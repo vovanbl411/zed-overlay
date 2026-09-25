@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "watch_zed_release.py"
+# Загружаем автономный watcher по пути, не устанавливая пакет и не меняя
+# CLI entry point, который используется в CI.
 SPEC = importlib.util.spec_from_file_location("watch_zed_release", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 WATCHER = importlib.util.module_from_spec(SPEC)
@@ -35,6 +37,8 @@ def create_overlay(root: Path, versions: tuple[str, ...] = ("1.15.0",)) -> None:
 
 
 class FakeResponse:
+    # Подмена повторяет интерфейс urlopen: context manager, status и поток байтов.
+    # Так тесты проверяют ответы API, не обращаясь к сети.
     def __init__(self, body: bytes, *, status: int = 200) -> None:
         self.body = io.BytesIO(body)
         self.status = status

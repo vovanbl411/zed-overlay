@@ -79,6 +79,8 @@ def plan_release(repository_root: Path, candidate_version: Version) -> ReleasePl
     target_patch = package_dir / "files" / f"{candidate_name}-wayland-only.patch"
     if target_ebuild.exists() or target_ebuild.is_symlink():
         raise ReleasePreparationError(f"Candidate target already exists: {target_ebuild}.")
+    # Файл с таким именем может уже содержать локальную адаптацию patch;
+    # сохраняем его и оставляем проверку применимости отдельному validation gate.
     reuse_existing_patch = target_patch.exists() or target_patch.is_symlink()
     if reuse_existing_patch and (not target_patch.is_file() or target_patch.is_symlink()):
         raise ReleasePreparationError(
@@ -162,6 +164,8 @@ def prepare_release(
         assert source_patch is not None
         write_new_file(plan.target_patch, source_patch)
     except ReleasePreparationError:
+        # Если запись patch не удалась после записи ebuild, удаляем ebuild,
+        # чтобы в overlay не осталась неполная пара candidate-файлов.
         remove_created_file(plan.target_ebuild)
         raise
     return PrepareResult("prepared", plan)

@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "prepare_zed_release.py"
+# Импортируем автономный CLI-скрипт по пути: каталог scripts не является Python-пакетом,
+# и тест проверяет тот же код, который запускает CI.
 SPEC = importlib.util.spec_from_file_location("prepare_zed_release", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 PREPARE = importlib.util.module_from_spec(SPEC)
@@ -17,6 +19,8 @@ SPEC.loader.exec_module(PREPARE)
 
 
 def create_overlay(root: Path) -> None:
+    # Две стабильные версии позволяют проверить выбор самой новой и убедиться,
+    # что подготовка candidate не удаляет уже упакованные файлы.
     package_dir = root / "app-editors/zed"
     (package_dir / "files").mkdir(parents=True)
     (package_dir / "zed-1.14.0.ebuild").write_bytes(b"old ebuild\n")

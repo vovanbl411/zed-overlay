@@ -25,6 +25,8 @@ validate_release_diff() {
   git add app-editors/zed/Manifest "$candidate_ebuild" "$candidate_patch"
   git diff --cached --check
 
+  # Manifest и ebuild обязательны; patch входит в allowlist только если handoff
+  # создал его. Любой другой staged-файл должен остановить публикацию.
   expected_paths="$RUNNER_TEMP/zed-release-expected-paths"
   {
     printf '%s\n' app-editors/zed/Manifest "$candidate_ebuild"
@@ -183,10 +185,14 @@ main() {
   validate_release_diff
   find_existing_pr
   if test -n "$existing_pr_url"; then
+    # Повторный запуск с уже открытым automation PR завершается успешно:
+    # второй branch и второй PR для того же release не создаются.
     printf 'Existing automation PR: %s\n' "$existing_pr_url" >> "$GITHUB_STEP_SUMMARY"
     exit 0
   fi
 
+  # Если ветка существует без открытого PR, её происхождение неизвестно;
+  # завершаемся fail-closed и не перезаписываем удалённую ветку.
   assert_remote_branch_absent
   commit_and_push_branch
   create_draft_pr

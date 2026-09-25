@@ -1,6 +1,8 @@
 ---
 version: 2
 updates:
+  # Dependabot предлагает обновления закреплённых GitHub Actions;
+  # каждое изменение SHA проходит обычное ревью перед попаданием в workflow.
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -12,6 +12,8 @@ set -euo pipefail
 validate_candidate_paths() {
   local before_paths="$1"
 
+  # Сравниваем список файлов до и после подготовки: ожидаем новый ebuild и,
+  # если подходящего patch ещё не было, его версионную пару.
   mapfile -d '' -t candidate_paths < <(
     comm -z -13 "$before_paths" <(find app-editors/zed -type f -print0 | sort -z)
   )
@@ -53,6 +55,8 @@ validate_candidate_in_container() {
     "$GENTOO_STAGE3_IMAGE" \
     /bin/bash -e -c '
       mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
+      # Используем заранее заполненный Gentoo tree и подключённый overlay
+      # как отдельные репозитории Portage, чтобы проверить candidate без sync.
       printf "%s\n" \
         "[DEFAULT]" \
         "main-repo = gentoo" \
@@ -72,6 +76,8 @@ validate_candidate_in_container() {
         "media-libs/vulkan-loader wayland" \
         "media-video/pipewire sound-server" \
         > /etc/portage/package.use/zed-validation
+      # Manifest обновляет Portage на этапе проверки ebuild; команда --prepare
+      # выше обязана оставить исходный Manifest без изменений.
       ebuild "$CANDIDATE_EBUILD" manifest
       emerge -pv --oneshot "$CANDIDATE_ATOM"
       patch_root="$(mktemp -d)"
@@ -165,6 +171,8 @@ main() {
   echo "handoff_ready=false" >> "$GITHUB_OUTPUT"
   git -C "$GITHUB_WORKSPACE" ls-files -z > "$tracked_paths"
   mkdir -p "$disposable_workspace"
+  # Проверяем архив HEAD, а не рабочий checkout: подготовка candidate не должна
+  # загрязнять исходное дерево, а в архив не попадает каталог .git.
   git -C "$GITHUB_WORKSPACE" archive HEAD | tar -x -C "$disposable_workspace"
   test ! -e "$disposable_workspace/.git"
 
@@ -173,6 +181,8 @@ main() {
   find app-editors/zed -type f -print0 | sort -z > "$before_paths"
   PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py --prepare | tee "$prepare_log" | tee -a "$GITHUB_STEP_SUMMARY"
   test ! -e .git
+  # Этот checksum фиксирует границу: --prepare добавляет candidate-файлы,
+  # но Manifest разрешено менять только позднее через ebuild manifest.
   test "$manifest_checksum" = "$(sha256sum app-editors/zed/Manifest)"
 
   if grep -Fxq 'Result: new-release' "$prepare_log"; then
