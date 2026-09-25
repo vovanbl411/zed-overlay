@@ -197,6 +197,8 @@ def parse_offline_substitutions(
 ) -> list[OfflineSubstitution]:
     """Validate the existing explicit local Cargo replacement convention."""
     variables: dict[str, str] = {}
+    # Ebuild не выполняем: читаем только известную форму local assignments,
+    # чтобы проверить pins без запуска команд из файла.
     for line in ebuild_text.splitlines():
         match = LOCAL_ASSIGNMENT.fullmatch(line)
         if match is not None:
@@ -258,6 +260,8 @@ def parse_offline_substitutions(
 
 def compare_snapshots(upstream: dict[str, GitCrate], ebuild: dict[str, GitCrate]) -> list[str]:
     errors: list[str] = []
+    # Сверяем по имени crate, чтобы отдельно показать добавление или удаление
+    # зависимости, а также несовпадение URL репозитория или commit.
     for name in sorted(upstream.keys() - ebuild.keys()):
         errors.append(f"{name}: upstream Git dependency is missing from GIT_CRATES.")
     for name in sorted(ebuild.keys() - upstream.keys()):

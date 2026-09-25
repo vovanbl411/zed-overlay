@@ -15,6 +15,8 @@ EBUILD_PATHS = tuple(
     for path in (Path(__file__).parents[1] / "app-editors" / "zed").glob("zed-*.ebuild")
     if "git_crate_commit()" in path.read_text(encoding="utf-8")
 )
+# Загружаем сам скрипт напрямую: для тестов не требуется устанавливать проект
+# как Python-пакет или менять структуру его CLI entry points.
 SPEC = importlib.util.spec_from_file_location("check_zed_cargo_snapshot", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 CHECKER = importlib.util.module_from_spec(SPEC)
@@ -86,6 +88,8 @@ class CargoSnapshotTests(unittest.TestCase):
         CHECKER.validate(self.ebuild, self.source)
 
     def run_ebuild_commit_helper(self, ebuild_text: str, crate: str) -> subprocess.CompletedProcess[str]:
+        # Запускаем только функцию и её блок данных: полный ebuild требует Portage
+        # и не должен выполняться внутри unit test.
         git_crates = re.search(
             r"declare -A GIT_CRATES=\(.*?^\)\n", ebuild_text, flags=re.MULTILINE | re.DOTALL
         )

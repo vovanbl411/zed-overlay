@@ -86,6 +86,8 @@ def validate_wayland_patch(patch_path: Path) -> None:
     ):
         raise OverlayPolicyError(f"Patch lacks unified-diff file markers: {patch_path}.")
 
+    # Строки +++ и --- описывают файлы diff, а не feature graph;
+    # исключаем их, чтобы проверять только добавленное и удалённое содержимое.
     added_lines = [line[1:] for line in patch_lines if line.startswith("+") and not line.startswith("+++")]
     removed_lines = [line[1:] for line in patch_lines if line.startswith("-") and not line.startswith("---")]
     added_text = "\n".join(added_lines).lower()
@@ -141,6 +143,8 @@ def validate_overlay(
         require_file(patch_path)
         validate_wayland_patch(patch_path)
 
+    # В git archive нет .git. CI передаёт сохранённый список tracked-файлов,
+    # чтобы policy проверяла тот же снимок репозитория и в disposable workspace.
     tracked = set(tracked_paths) if tracked_paths is not None else git_tracked_paths(repository_root)
     if any(path == "metadata/md5-cache" or path.startswith("metadata/md5-cache/") for path in tracked):
         raise OverlayPolicyError("Pregenerated metadata/md5-cache must not be tracked by Git.")

@@ -17,6 +17,8 @@ from overlay_policy import OverlayPolicyError, main, tracked_paths_from_file, va
 
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
+# Валидный fixture показывает ожидаемый результат: X11 и screen-capture удалены,
+# а Wayland остаётся единственным включённым backend в этом участке diff.
 VALID_PATCH = """\
 diff --git a/Cargo.toml b/Cargo.toml
 index 1111111..2222222 100644
@@ -70,6 +72,8 @@ class OverlayPolicyTests(unittest.TestCase):
         )
 
     def test_policy_accepts_gitless_overlay_with_supplied_tracked_paths(self) -> None:
+        # У архивированного workspace нет .git, поэтому передаём список tracked-файлов
+        # отдельно, как это делает CI при проверке disposable workspace.
         tracked_paths_file = self.root / "tracked-paths"
         tracked_paths_file.write_bytes(b"metadata/layout.conf\0profiles/repo_name\0")
 

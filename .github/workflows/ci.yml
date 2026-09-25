@@ -23,6 +23,8 @@ jobs:
       - name: Check overlay policy
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py
 
+      # Проверяем синтаксис shell-скриптов: этот быстрый gate ловит ошибки разбора
+      # и не требует отдельного линтера для shell.
       - name: Check CI shell syntax
         run: bash -n scripts/ci/*.sh
 

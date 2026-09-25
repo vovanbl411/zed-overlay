@@ -172,6 +172,8 @@ def _validate_artifact_layout(destination: Path, expected_files: set[Path]) -> N
     found_files: set[Path] = set()
     found_directories: set[Path] = set()
 
+    # Handoff приходит как отдельный artifact из CI: запрещаем symlink и special files,
+    # чтобы проверка не прочитала данные за пределами каталога artifact.
     def walk(directory: Path, relative_directory: Path) -> None:
         with os.scandir(directory) as entries:
             for entry in entries:
@@ -337,6 +339,8 @@ def apply_release_handoff(
                 f"Existing candidate patch differs from handoff: {destination_patch}"
             )
 
+    # Сначала размещаем ebuild и patch, затем копируем соответствующий им Manifest;
+    # так Manifest не объявляет candidate до появления обоих package files.
     _write_new_file(destination_ebuild, ebuild_content)
     if patch_created:
         _write_new_file(destination_patch, patch_content)

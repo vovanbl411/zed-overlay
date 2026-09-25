@@ -4,12 +4,12 @@
 
 ### Native baseline
 
-Zed 1.21.0 is the confirmed manual runtime baseline. Portage built it natively
-and installed `/usr/libexec/zed-editor` and `/usr/bin/zedit`. `scanelf` and
-`lddtree` found no runtime linkage to `libX11`, `libxcb`, or `xkbcommon-x11`,
-and `env -u DISPLAY /usr/libexec/zed-editor` started Zed and rendered its first
-frame through native Wayland. The client selected a Vulkan adapter on Intel Iris
-Xe and reached `Authenticated`.
+Zed 1.21.0 is the confirmed manual runtime baseline on amd64. Portage built it
+natively and installed `/usr/libexec/zed-editor` and `/usr/bin/zedit`.
+`scanelf` and `lddtree` found no runtime linkage to `libX11`, `libxcb`, or
+`xkbcommon-x11`, and `env -u DISPLAY /usr/libexec/zed-editor` started Zed and
+rendered its first frame through native Wayland. The client selected an Intel
+Iris Xe Vulkan adapter and reached `Authenticated`.
 
 ### Current package
 
@@ -26,7 +26,8 @@ The current package is `app-editors/zed-1.21.0`. Automation has confirmed:
 Automation does not compile or runtime-test Zed. Manual Gentoo runtime
 acceptance for 1.21.0 is complete: Portage built and installed the package,
 runtime-linkage checks passed, and native Wayland startup completed without an
-X11 `DISPLAY`. Zed 1.21.0 is runtime-validated.
+X11 `DISPLAY`. Zed 1.21.0 is runtime-validated on amd64. The arm64 build and
+runtime have not been tested.
 
 ## Technical debt
 

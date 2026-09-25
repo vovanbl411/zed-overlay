@@ -98,6 +98,8 @@ def latest_stable_release(payload: object) -> Release:
 
     if not releases:
         raise WatcherError("GitHub API returned no suitable stable Zed releases.")
+    # Версия хранится как tuple чисел: сравнение выберет 1.10.0 после 1.9.0,
+    # а не ошибочно отсортирует версии как строки.
     return max(releases, key=lambda release: release.version)
 
 
@@ -116,6 +118,8 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {token}"
         request = Request(RELEASES_URL, headers=headers)
         try:
+            # URL задан константой для официального HTTPS API GitHub, а не берётся
+            # из пользовательского ввода; noqa отмечает именно этот безопасный вызов.
             with urlopen(request, timeout=15) as response:  # noqa: S310
                 status = getattr(response, "status", 200)
                 if not isinstance(status, int) or not 200 <= status < 300:

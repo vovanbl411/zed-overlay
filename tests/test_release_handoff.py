@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "release_handoff.py"
+# Загружаем CLI-модуль по пути, сохраняя импорты соседних скриптов так,
+# как они работают при обычном запуске из scripts/.
 SPEC = importlib.util.spec_from_file_location("release_handoff", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 HANDOFF = importlib.util.module_from_spec(SPEC)
@@ -72,6 +74,8 @@ class ReleaseHandoffTests(unittest.TestCase):
 
     @staticmethod
     def snapshot_at(root: Path) -> dict[Path, bytes]:
+        # Снимок относительных путей и байтов ловит и новые файлы,
+        # и частичное изменение уже существующих при ошибке операции.
         return {
             path.relative_to(root): path.read_bytes()
             for path in root.rglob("*")
@@ -79,6 +83,8 @@ class ReleaseHandoffTests(unittest.TestCase):
         }
 
     def create_handoff_source(self, version: str = "1.16.0") -> None:
+        # Handoff разрешает ровно эти три package-файла: Manifest, ebuild и patch;
+        # остальные данные не должны пересекать границу между jobs.
         (self.root / "app-editors/zed/Manifest").write_bytes(b"manifest\n")
         self.candidate_ebuild(version).write_bytes(b"candidate ebuild\n")
         self.candidate_patch(version).write_bytes(b"candidate patch\n")
