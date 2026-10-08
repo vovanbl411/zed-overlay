@@ -75,7 +75,6 @@ declare -A GIT_CRATES=(
 	[wprcontrol]='https://github.com/zed-industries/wprcontrol;cd811f7d744f65291e13131b1d907fda63ed91a1;wprcontrol-%commit%'
 	[xim-ctext]='https://github.com/zed-industries/xim-rs;16f35a2c881b815a2b6cdfd6687988e84f8447d8;xim-rs-%commit%/xim-ctext'
 	[xim-parser]='https://github.com/zed-industries/xim-rs;16f35a2c881b815a2b6cdfd6687988e84f8447d8;xim-rs-%commit%/xim-parser'
-	[yawc]='https://github.com/zed-industries/yawc;71a452f551cac178367eaac5d7418a09afa1f3a2;yawc-%commit%'
 	[zed-font-kit]='https://github.com/zed-industries/font-kit;94b0f28166665e8fd2f53ff6d268a14955c82269;font-kit-%commit%'
 	[zed-reqwest]='https://github.com/zed-industries/reqwest;33bc764aa15ff7b200bf7c93bd96e24878d53e14;reqwest-%commit%'
 	[zed-scap]='https://github.com/zed-industries/scap;4afea48c3b002197176fb19cd0f9b180dd36eaac;scap-%commit%'

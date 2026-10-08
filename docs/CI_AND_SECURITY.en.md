@@ -114,3 +114,24 @@ contents cannot confirm whether this GitHub-level ruleset is enabled.
 - Keep write permissions limited to the publish job described above.
 - We recommend enabling GitHub Secret Scanning and Push Protection manually.
   Their status cannot be confirmed from repository files.
+
+## Local `ebuild manifest` troubleshooting
+
+If a local `ebuild <candidate>.ebuild manifest` exits with status `1` before normal Portage phase output, inspect local Portage hooks (`/etc/portage/bashrc` and environments assigned through `package.env`) before changing the ebuild or release automation.
+
+On one Gentoo workstation, a package-specific scheduling hook set `PORTAGE_SCHEDULING_COMMAND` to a `taskset` command. `/etc/portage/bashrc` applied it to `${BASHPID}`, and the command failed inside the Portage build environment with `pid-sandbox` enabled. The ebuild and Manifest generation themselves were valid.
+
+To isolate such host-specific configuration, run:
+
+```sh
+doas env PORTAGE_SCHEDULING_COMMAND= \
+    ebuild zed-<version>.ebuild manifest
+```
+
+If Manifest generation succeeds with that variable cleared, the failure belongs to the local Portage scheduling configuration rather than the release candidate. For additional diagnostics, use:
+
+```sh
+doas ebuild --debug --force zed-<version>.ebuild manifest
+```
+
+Custom scheduling hooks are not a `zed-overlay` requirement; CI validates the candidate in a clean pinned Gentoo container environment.
