@@ -47,7 +47,7 @@ jobs:
       # временный workspace и остальные результаты проверки остаются внутри job.
       - name: Upload release handoff
         if: steps.prepare-and-validate.outputs.handoff_ready == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-handoff
           path: ${{ runner.temp }}/release-handoff
