@@ -220,7 +220,7 @@ src_prepare() {
 
 	local CALLOOP_COMMIT
 	git_crate_commit calloop CALLOOP_COMMIT
-	local CALLOOP_GIT="calloop = { git = \"https://github.com/zed-industries/calloop\""
+	local CALLOOP_GIT="calloop = { git = \"https://github.com/zed-industries/calloop\", rev = \"${CALLOOP_COMMIT}\""
 	local CALLOOP_PATH="calloop = { path = \"${WORKDIR}/calloop-${CALLOOP_COMMIT}\""
 
 	local LIVEKIT_COMMIT
