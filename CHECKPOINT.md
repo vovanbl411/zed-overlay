@@ -49,16 +49,16 @@ Verified locally:
 - Unchanged version-specific Wayland patch: `gpatch --dry-run -p1` OK.
 - Portage Manifest generation and `emerge -pv --oneshot`: OK on amd64.
 - Overlay policy, shell syntax, and `git diff --check`: OK.
-- Unittest: 74/75 pass. The existing
-  `test_ebuild_offline_substitutions_are_formed_from_git_crates` requires the
-  same ten substitutions for every ebuild and rejects the necessary cpal and
-  khronos-egl additions. Tests are outside this task's permitted scope.
+- Unittest: 75/75 pass after correcting the version-specific expectations in
+  `test_ebuild_offline_substitutions_are_formed_from_git_crates`: ten
+  substitutions for older ebuilds, twelve starting with 1.25.2. Exact set
+  equality and commit checks against GIT_CRATES remain enforced.
 
 Portage used build user/group `vladimir` and an empty scheduling command.
 `CHECKREQS_DONOTHING=1` allowed unpack/prepare on the 12 GiB temporary filesystem
 without satisfying the 20 GiB full-build disk requirement. Full build,
 `scanelf`, `lddtree`, native Wayland startup, and arm64 acceptance were NOT RUN.
-This candidate is not runtime-validated and still has the unittest failure.
+This candidate is not runtime-validated.
 
 ## Technical debt
 
