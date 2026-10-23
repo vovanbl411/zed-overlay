@@ -201,11 +201,15 @@ version = "0001d84-4"
             "windows-capture",
         }
         for ebuild_path in EBUILD_PATHS:
+            version = tuple(int(part) for part in ebuild_path.stem.removeprefix("zed-").split("."))
+            expected_for_version = expected_crates
+            if version >= (1, 25, 2):
+                expected_for_version = expected_crates | {"cpal", "khronos-egl"}
             ebuild_text = ebuild_path.read_text(encoding="utf-8")
             git_crates = CHECKER.parse_git_crates(ebuild_text)
             substitutions = CHECKER.parse_offline_substitutions(ebuild_text, git_crates)
 
-            self.assertEqual({item.crate for item in substitutions}, expected_crates)
+            self.assertEqual({item.crate for item in substitutions}, expected_for_version)
             for substitution in substitutions:
                 self.assertEqual(substitution.commit, git_crates[substitution.crate].commit)
 
