@@ -29,6 +29,37 @@ runtime-linkage checks passed, and native Wayland startup completed without an
 X11 `DISPLAY`. Zed 1.21.0 is runtime-validated on amd64. The arm64 build and
 runtime have not been tested.
 
+### Zed 1.25.2 release candidate (2026-10-23)
+
+Prepared locally from clean `main` at
+`0cc3b1aee41ab26e0c1d43667a27be98c78cbf8c`, whose latest ebuild was 1.24.2,
+using `scripts/prepare_zed_release.py --release-version 1.25.2`.
+The copied snapshot failed against the exact upstream v1.25.2 source before
+reconciliation. The candidate now matches all 85 Cargo.lock Git crates:
+15 additions, the new async-task repository/revision, and the rodio revision.
+
+Verified locally:
+
+- Cargo snapshot gate: OK against the clean v1.25.2 source.
+- Portage `unpack prepare`: OK in a fresh temporary directory; all 85 Git
+  crate paths contain Cargo.toml with the expected package name.
+- `cargo metadata --offline --format-version 1`: OK on the prepared tree.
+  Both cpal declarations and khronos-egl require explicit path substitutions;
+  failures without them were reproduced. Wgpu uses cargo.eclass patches.
+- Unchanged version-specific Wayland patch: `gpatch --dry-run -p1` OK.
+- Portage Manifest generation and `emerge -pv --oneshot`: OK on amd64.
+- Overlay policy, shell syntax, and `git diff --check`: OK.
+- Unittest: 74/75 pass. The existing
+  `test_ebuild_offline_substitutions_are_formed_from_git_crates` requires the
+  same ten substitutions for every ebuild and rejects the necessary cpal and
+  khronos-egl additions. Tests are outside this task's permitted scope.
+
+Portage used build user/group `vladimir` and an empty scheduling command.
+`CHECKREQS_DONOTHING=1` allowed unpack/prepare on the 12 GiB temporary filesystem
+without satisfying the 20 GiB full-build disk requirement. Full build,
+`scanelf`, `lddtree`, native Wayland startup, and arm64 acceptance were NOT RUN.
+This candidate is not runtime-validated and still has the unittest failure.
+
 ## Technical debt
 
 Release preparation still copies the previous ebuild, but automation now
