@@ -1,3 +1,4 @@
 # Python bytecode and cache directories created by local tooling/tests.
 __pycache__/
 *.py[cod]
+.history/
