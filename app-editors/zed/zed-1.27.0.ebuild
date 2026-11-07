@@ -277,6 +277,13 @@ src_prepare() {
 	local TREE_SITTER_LANGUAGE_GIT="tree-sitter-language = { git = \"https://github.com/tree-sitter/tree-sitter\", rev = \"${TREE_SITTER_COMMIT}\""
 	local TREE_SITTER_LANGUAGE_PATH="tree-sitter-language = { path = \"${WORKDIR}/tree-sitter-${TREE_SITTER_COMMIT}/crates/language\""
 
+    local CRASH_CONTEXT_COMMIT
+    git_crate_commit crash-context CRASH_CONTEXT_COMMIT
+    
+    local CRASH_CONTEXT_GIT="crash-context = { git = \"https://github.com/rust-minidump/minidump-writer\", rev = \"${CRASH_CONTEXT_COMMIT}\""
+    
+    local CRASH_CONTEXT_PATH="crash-context = { path = \"${WORKDIR}/minidump-writer-${CRASH_CONTEXT_COMMIT}/crates/crash-context\""
+
 	local cargo_toml="${S}/Cargo.toml"
 	local git_declaration path_declaration
 	for git_declaration in \
