@@ -205,6 +205,8 @@ version = "0001d84-4"
             expected_for_version = expected_crates
             if version >= (1, 25, 2):
                 expected_for_version = expected_crates | {"cpal", "khronos-egl"}
+            if version >= (1, 27, 0):
+                expected_for_version = expected_for_version | {"crash-context"}
             ebuild_text = ebuild_path.read_text(encoding="utf-8")
             git_crates = CHECKER.parse_git_crates(ebuild_text)
             substitutions = CHECKER.parse_offline_substitutions(ebuild_text, git_crates)

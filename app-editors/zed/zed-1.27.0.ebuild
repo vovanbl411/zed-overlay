@@ -277,6 +277,13 @@ src_prepare() {
 	local TREE_SITTER_LANGUAGE_GIT="tree-sitter-language = { git = \"https://github.com/tree-sitter/tree-sitter\", rev = \"${TREE_SITTER_COMMIT}\""
 	local TREE_SITTER_LANGUAGE_PATH="tree-sitter-language = { path = \"${WORKDIR}/tree-sitter-${TREE_SITTER_COMMIT}/crates/language\""
 
+    local CRASH_CONTEXT_COMMIT
+    git_crate_commit crash-context CRASH_CONTEXT_COMMIT
+    
+    local CRASH_CONTEXT_GIT="crash-context = { git = \"https://github.com/rust-minidump/minidump-writer\", rev = \"${CRASH_CONTEXT_COMMIT}\""
+    
+    local CRASH_CONTEXT_PATH="crash-context = { path = \"${WORKDIR}/minidump-writer-${CRASH_CONTEXT_COMMIT}/crates/crash-context\""
+
 	local cargo_toml="${S}/Cargo.toml"
 	local git_declaration path_declaration
 	for git_declaration in \
@@ -284,7 +291,7 @@ src_prepare() {
 		"${CPAL_GIT}" "${KHRONOS_EGL_GIT}" \
 		"${LIVEKIT_GIT}" "${LIBWERBRTC_GIT}" "${WEBRTC_SYS_GIT}" \
 		"${NOTIFY_GIT}" "${NOTIFY_TYPES_GIT}" "${WIN_CAP_GIT}" \
-		"${TREE_SITTER_LANGUAGE_GIT}"; do
+		"${TREE_SITTER_LANGUAGE_GIT}" "${CRASH_CONTEXT_GIT}"; do
 		grep -Fq "${git_declaration}" "${cargo_toml}" \
 			|| die "Expected Cargo Git dependency declaration is missing: ${git_declaration}"
 	done
@@ -302,6 +309,7 @@ src_prepare() {
 		-e "s#${NOTIFY_TYPES_GIT}#${NOTIFY_TYPES_PATH}#" \
 		-e "s#${WIN_CAP_GIT}#${WIN_CAP_PATH}#" \
 		-e "s#${TREE_SITTER_LANGUAGE_GIT}#${TREE_SITTER_LANGUAGE_PATH}#" \
+		-e "s#${CRASH_CONTEXT_GIT}#${CRASH_CONTEXT_PATH}#" \
 		-i "${cargo_toml}" || die "Cargo fetch workaround failed"
 
 	for git_declaration in \
@@ -309,7 +317,7 @@ src_prepare() {
 		"${CPAL_GIT}" "${KHRONOS_EGL_GIT}" \
 		"${LIVEKIT_GIT}" "${LIBWERBRTC_GIT}" "${WEBRTC_SYS_GIT}" \
 		"${NOTIFY_GIT}" "${NOTIFY_TYPES_GIT}" "${WIN_CAP_GIT}" \
-		"${TREE_SITTER_LANGUAGE_GIT}"; do
+		"${TREE_SITTER_LANGUAGE_GIT}" "${CRASH_CONTEXT_GIT}"; do
 		grep -Fq "${git_declaration}" "${cargo_toml}" \
 			&& die "Cargo Git dependency replacement did not apply: ${git_declaration}"
 	done
@@ -318,7 +326,7 @@ src_prepare() {
 		"${CPAL_PATH}" "${KHRONOS_EGL_PATH}" \
 		"${LIVEKIT_PATH}" "${LIBWERBRTC_PATH}" "${WEBRTC_SYS_PATH}" \
 		"${NOTIFY_PATH}" "${NOTIFY_TYPES_PATH}" "${WIN_CAP_PATH}" \
-		"${TREE_SITTER_LANGUAGE_PATH}"; do
+		"${TREE_SITTER_LANGUAGE_PATH}" "${CRASH_CONTEXT_PATH}"; do
 		grep -Fq "${path_declaration}" "${cargo_toml}" \
 			|| die "Cargo path dependency replacement is missing: ${path_declaration}"
 	done
