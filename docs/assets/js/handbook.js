@@ -27,18 +27,34 @@ function initTheme(control) {
 
 function initSelector(container) {
   const panels = [...container.querySelectorAll(':scope > [data-panel]')];
-  const controls = document.createElement('div');
-  controls.className = 'selection-controls';
-  controls.setAttribute('role', 'group');
-  controls.setAttribute('aria-label', container.dataset.label);
+  const source = container.querySelector(':scope > [data-source-lines]');
+  const controls = source ?? document.createElement('div');
+  const lines = source ? [...source.querySelectorAll('[data-line]')] : [];
+
+  if (!source) {
+    controls.className = 'selection-controls';
+    controls.setAttribute('role', 'group');
+    controls.setAttribute('aria-label', container.dataset.label);
+    container.append(controls);
+  }
 
   const buttons = panels.map((panel, index) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = panel.dataset.label;
     button.setAttribute('aria-controls', panel.id);
     button.addEventListener('click', () => select(index));
-    controls.append(button);
+
+    if (source) {
+      const [first, last = first] = panel.dataset.lines.split('-').map(Number);
+      const rows = lines.filter((row) => Number(row.dataset.line) >= first && Number(row.dataset.line) <= last);
+      const code = rows.map((row) => row.querySelector('code').textContent.trim()).join(' ');
+      button.setAttribute('aria-label', panel.dataset.label + '. ' + code);
+      rows[0].before(button);
+      button.append(...rows);
+    } else {
+      button.textContent = panel.dataset.label;
+      controls.append(button);
+    }
     return button;
   });
 
@@ -52,7 +68,7 @@ function initSelector(container) {
   const content = document.createElement('div');
   content.setAttribute('aria-live', 'polite');
   content.append(...panels);
-  container.append(controls, content);
+  container.append(content);
   select(0);
 }
 
@@ -174,9 +190,50 @@ function initQuiz(form) {
   form.hidden = false;
 }
 
+function initCron(form) {
+  const controls = form.querySelector('[data-cron-controls]');
+  const result = form.querySelector('[data-cron-result]');
+  const fields = form.querySelectorAll('[data-cron-field]');
+
+  function render() {
+    const { minute, hour } = form.elements;
+    const time = [hour.value, minute.value].map((part) => part.padStart(2, '0')).join(':');
+    fields[0].textContent = minute.value;
+    fields[1].textContent = hour.value;
+    result.querySelector('code').textContent = `${minute.value} ${hour.value} * * *`;
+    result.querySelector('span').textContent = `Ежедневно в ${time} UTC.`;
+  }
+
+  form.addEventListener('input', render);
+  form.addEventListener('reset', () => setTimeout(render, 0));
+  form.addEventListener('submit', (event) => event.preventDefault());
+  render();
+  controls.hidden = false;
+}
+
+function initConcurrency(container) {
+  const controls = container.querySelector('[data-concurrency-controls]');
+  const cancel = controls.querySelector('select');
+  const third = controls.querySelector('input');
+  const scenarios = container.querySelectorAll('[data-concurrency-scenario]');
+
+  function render() {
+    const active = `${cancel.value}-${third.checked ? 3 : 2}`;
+    scenarios.forEach((scenario) => {
+      scenario.hidden = scenario.dataset.concurrencyScenario !== active;
+    });
+  }
+
+  controls.addEventListener('change', render);
+  render();
+  controls.hidden = false;
+}
+
 if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-theme-control]').forEach(initTheme);
   document.querySelectorAll('[data-selector]').forEach(initSelector);
   document.querySelectorAll('[data-simulator]').forEach(initSimulator);
   document.querySelectorAll('[data-quiz]').forEach(initQuiz);
+  document.querySelectorAll('[data-cron]').forEach(initCron);
+  document.querySelectorAll('[data-concurrency]').forEach(initConcurrency);
 }

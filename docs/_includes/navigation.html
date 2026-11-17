@@ -3,7 +3,15 @@
     <p class="eyebrow">Содержание</p>
     <ul>
       <li><a href="{{ '/' | relative_url }}"{% unless page.chapter %} aria-current="page"{% endunless %}>Введение</a></li>
-      <li><a href="{{ '/internals/01-release-watcher/' | relative_url }}"{% if page.chapter %} aria-current="page"{% endif %}><span>01</span> Release watcher</a></li>
+      {% assign architecture = '/internals/01-release-watcher/' %}
+      {% assign walkthrough = '/internals/01-release-watcher/yaml/' %}
+      <li class="chapter-links">
+        <a href="{{ architecture | relative_url }}"><span>01</span> Release watcher</a>
+        <ul>
+          <li><a href="{{ architecture | relative_url }}"{% if page.url == architecture %} aria-current="page"{% endif %}>Общая архитектура</a></li>
+          <li><a href="{{ walkthrough | relative_url }}"{% if page.url == walkthrough %} aria-current="page"{% endif %}>Разбор YAML</a></li>
+        </ul>
+      </li>
       <li class="planned"><span>02</span> Shell scripts <small>В планах</small></li>
       <li class="planned"><span>03</span> Python scripts <small>В планах</small></li>
       <li class="planned"><span>04</span> Ebuild <small>В планах</small></li>

@@ -3,6 +3,16 @@ layout: handbook
 title: Как устроен Zed release watcher
 description: "От нового тега Zed до черновика обновления в Gentoo. Разберём поток данных, границы проверки и решения, которые остаются за сопровождающим."
 chapter: 1
+eyebrow: Глава 01 / Автоматизация релизов
+sections:
+  - { id: problem, label: "1.1. Задача" }
+  - { id: glossary, label: "1.2. Компоненты" }
+  - { id: workflow, label: "1.3. Workflow и runner" }
+  - { id: jobs, label: "1.4. Три этапа" }
+  - { id: artifacts, label: "1.5. Поток данных" }
+  - { id: lab, label: "1.6. Лаборатория" }
+  - { id: history, label: "1.7. История v1.28.1" }
+  - { id: quiz, label: "1.8. Самопроверка" }
 permalink: /internals/01-release-watcher/
 ---
 

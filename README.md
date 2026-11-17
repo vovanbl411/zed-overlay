@@ -96,8 +96,20 @@ Zed и не проверяет его работу. Для проверки но
 на примере обновления Zed с 1.27.0 до 1.28.1. Первая глава знакомит с release
 watcher и содержит учебный симулятор.
 
-Для локального предпросмотра нужны Ruby, Jekyll 3.10 и Python 3. Выполните
-из корня репозитория:
+Для локального просмотра с [mise](https://mise.jdx.dev/) выполните из корня
+репозитория:
+
+```sh
+mise trust
+mise install
+mise run docs:preview
+```
+
+Откройте [http://127.0.0.1:4000/zed-overlay/](http://127.0.0.1:4000/zed-overlay/).
+Jekyll пересобирает сайт при правках в `docs/`. Команда `mise run docs:build`
+собирает сайт в `_site/` без запуска сервера.
+
+Для ручного запуска с Ruby, Jekyll 3.10 и Python 3 выполните:
 
 ```sh
 preview_dir="$(mktemp -d)"
@@ -105,9 +117,8 @@ jekyll build --safe --source docs --destination "$preview_dir/zed-overlay"
 python3 -m http.server 4000 --bind 127.0.0.1 --directory "$preview_dir"
 ```
 
-Откройте [http://127.0.0.1:4000/zed-overlay/](http://127.0.0.1:4000/zed-overlay/).
-Для просмотра после правок снова выполните команду сборки. Jekyll читает
-Markdown из `docs/` и добавляет префикс `/zed-overlay` к ссылкам справочника.
+При таком запуске используйте тот же адрес. После правок повторите команду
+`jekyll build`.
 
 Фрагменты GitHub Actions с выражениями вида `${{ github.sha }}` в Markdown
 справочника оборачивайте целиком, вместе с ограждением блока кода, в пару

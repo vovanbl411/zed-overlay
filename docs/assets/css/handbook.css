@@ -273,3 +273,84 @@ meter::-webkit-meter-optimum-value { background: var(--accent); }
   .chapter-shell main { grid-column: 2; grid-row: 1; }
   .page-nav { grid-column: 3; grid-row: 1; }
 }
+
+.sidebar .chapter-links ul { display: block; margin-left: 1rem; }
+.sidebar .chapter-links li > a { padding-block: .25rem; }
+
+.source-lines {
+  margin-block: .8rem;
+  padding: .45rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.source-line {
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr);
+  gap: .75rem;
+  min-height: 1.45em;
+  padding: .1rem .35rem;
+  font: .88rem/1.45 var(--mono);
+}
+
+.source-line code { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-comment code { color: var(--muted); }
+.source-number { color: var(--muted); text-align: right; user-select: none; }
+.source-lines button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-color: transparent;
+  text-align: left;
+}
+.source-lines button:hover { border-color: var(--accent); }
+.source-lines button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+}
+.source-lines button:focus-visible { position: relative; outline-offset: 1px; }
+
+.cron-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .35rem;
+  margin: .8rem 0;
+}
+.cron-fields div { padding: .35rem .25rem; text-align: center; }
+.cron-fields dt { font-size: .8rem; color: var(--muted); }
+.cron-fields dt span { white-space: nowrap; }
+.cron-fields dd { margin: 0; font: 1.05rem var(--mono); }
+.walkthrough-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin-block: .8rem; }
+.cron-result { margin: 0; font-weight: 650; }
+.permission-allowed { color: var(--ok); }
+.permission-absent { color: var(--muted); }
+
+.concurrency-timeline {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: .5rem;
+  padding-left: 0;
+  list-style: none;
+}
+.concurrency-timeline li { padding: .5rem; border-top: 3px solid var(--rule); background: var(--raised); }
+.concurrency-timeline strong { display: block; font-size: .86rem; }
+.concurrency-timeline span { display: block; font-size: .82rem; }
+.concurrency-timeline .running { border-color: var(--ok); }
+.concurrency-timeline .pending { border-color: var(--accent); }
+.concurrency-timeline .canceled { border-color: var(--error); }
+
+@media (max-width: 62rem) {
+  .concurrency-timeline { grid-auto-flow: row; }
+  .concurrency-timeline li { border-top: 0; border-left: 3px solid var(--rule); }
+}
+
+@media (max-width: 32rem) {
+  .cron-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .permissions-table { table-layout: fixed; font-size: .82rem; }
+  .permissions-table th, .permissions-table td { padding-inline: .35rem; }
+  .permissions-table th:first-child { width: 38%; }
+  .permissions-table td:first-child { hyphens: auto; }
+  .permissions-table td:not(:first-child) { overflow-wrap: normal; }
+}

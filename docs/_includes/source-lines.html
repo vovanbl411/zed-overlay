@@ -1,0 +1,9 @@
+{% assign lines = include.source | split: '
+' %}
+<div class="source-lines" role="group" aria-label="{{ include.label | escape }}"{% if include.interactive %} data-source-lines{% endif %}>
+  {%- for line in lines %}
+  {%- assign number = include.start | plus: forloop.index0 %}
+  {%- assign first = line | strip | slice: 0 %}
+  <span class="source-line{% if include.comment == first %} source-comment{% endif %}" data-line="{{ number }}"><span class="source-number">{{ number }}</span><code>{{ line | escape }}</code></span>
+  {%- endfor %}
+</div>

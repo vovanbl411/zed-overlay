@@ -2,3 +2,6 @@
 __pycache__/
 *.py[cod]
 .history/
+
+# Local Jekyll build.
+/_site/

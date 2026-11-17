@@ -29,26 +29,21 @@
       </label>
     </div>
   </header>
-  <div class="shell{% if page.chapter %} chapter-shell{% endif %}">
+  <div class="shell{% if page.sections %} chapter-shell{% endif %}">
     {% include navigation.html %}
-    {% if page.chapter %}
+    {% if page.sections %}
     <nav class="page-nav" aria-label="Разделы главы">
       <p class="eyebrow">В этой главе</p>
       <ol>
-        <li><a href="#problem">1.1. Задача</a></li>
-        <li><a href="#glossary">1.2. Компоненты</a></li>
-        <li><a href="#workflow">1.3. Workflow и runner</a></li>
-        <li><a href="#jobs">1.4. Три этапа</a></li>
-        <li><a href="#artifacts">1.5. Поток данных</a></li>
-        <li><a href="#lab">1.6. Лаборатория</a></li>
-        <li><a href="#history">1.7. История v1.28.1</a></li>
-        <li><a href="#quiz">1.8. Самопроверка</a></li>
+        {% for section in page.sections %}
+        <li><a href="#{{ section.id }}">{{ section.label | escape }}</a></li>
+        {% endfor %}
       </ol>
     </nav>
     {% endif %}
     <main id="content" tabindex="-1">
       <header class="page-header">
-        <p class="eyebrow">{% if page.chapter %}Глава 01 / Автоматизация релизов{% else %}Инженерный справочник{% endif %}</p>
+        <p class="eyebrow">{{ page.eyebrow | default: "Инженерный справочник" | escape }}</p>
         <h1>{{ page.title | escape }}</h1>
         {% if page.description %}<p class="lead">{{ page.description | escape }}</p>{% endif %}
       </header>
