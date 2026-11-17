@@ -1,7 +1,7 @@
 ---
 layout: handbook
 title: Release watcher — разбор YAML
-description: "Как первые 38 строк workflow задают условия запуска и настройки задания Check stable Zed release."
+description: "Как первые 60 строк workflow задают условия запуска, настройки и первые шаги задания Check stable Zed release."
 chapter: 1
 eyebrow: Глава 01 / Продолжение
 permalink: /internals/01-release-watcher/yaml/
@@ -11,6 +11,7 @@ sections:
   - { id: permissions, label: "2.3. Разрешения" }
   - { id: concurrency, label: "2.4. Параллельные запуски" }
   - { id: job-check, label: "2.5. Job 1 — начало выполнения workflow" }
+  - { id: job-steps, label: "2.6. Job 1 — первые шаги выполнения" }
 ---
 
 {% assign reviewed_revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -964,6 +965,706 @@ userspace Gentoo или набор данных Portage при очередно�
 зависит также от остальных входных данных.
 [Ссылки на образы в Docker](https://docs.docker.com/engine/containers/run/#image-references).
 
-Дальше, в строках 39–60, начинаются шаги `check`. Там watcher записывает
-время старта, получает копию репозитория, проверяет политику оверлея,
-запускает unit tests и начинает подготовку кандидата.
+## 2.6. Job 1 — первые шаги выполнения {#job-steps}
+
+### 2.6.1. Что такое steps и чем отличаются run и uses? {#step-explorer}
+
+{% assign source_revision = 'b3fd7f3f01fcf9f4e8d39059fffcee1df3270256' %}
+
+{% capture job_steps %}{% raw %}    steps:
+      - name: Record workflow start
+        id: run-clock
+        run: echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the overlay
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check overlay policy
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py
+
+      - name: Run unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+
+      - name: Prepare and validate disposable candidate
+        id: prepare-and-validate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
+        run: scripts/ci/validate-release-candidate.sh{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=job_steps label="Блок steps, строки 39–60" path=workflow_path revision=reviewed_revision start=39 comment="#" %}
+
+Блок `steps` задаёт порядок действий внутри задания. В GitHub Actions
+`name` подписывает шаг для человека, а `id` даёт ему идентификатор, по
+которому к нему может обратиться workflow. `run` запускает команду или
+скрипт. `uses` вызывает готовый action, а `with` передаёт ему параметры.
+
+Шаги Job 1 используют одну файловую систему runner. Поэтому Python находит
+файлы, которые скачал checkout. Каждый `run` выполняется в отдельном
+процессе оболочки. Обычная переменная предыдущего Bash-процесса сама по
+себе в следующий шаг не попадёт. Для передачи именованного результата
+есть [outputs](#job-outputs).
+
+<div class="selector figure step-explorer" data-selector data-label="Порядок шагов Job 1" markdown="1">
+  <ol class="step-rail" data-selection-controls aria-label="Порядок шагов Job 1" hidden>
+    <li><button type="button" data-select="step-clock"><small><code>run</code> · 40–42</small>Record workflow start</button></li>
+    <li><button type="button" data-select="step-checkout"><small><code class="action-kind">uses</code> · 44–47</small>Check out the overlay</button></li>
+    <li><button type="button" data-select="step-policy"><small><code>run</code> · 49–50</small>Check overlay policy</button></li>
+    <li><button type="button" data-select="step-tests"><small><code>run</code> · 52–53</small>Run unit tests</button></li>
+    <li><button type="button" data-select="step-candidate"><small><code>run</code> · 55–60</small>Prepare and validate disposable candidate</button></li>
+  </ol>
+
+<div class="selection-panel step-detail" data-panel id="step-clock" markdown="1">
+#### Record workflow start
+
+{% include source-lines.html source=run_clock start=40 label="Record workflow start, строки 40–42" %}
+
+Записывает время начала отсчёта в output шага. [Разбор шага](#step-time).
+</div>
+
+<div class="selection-panel step-detail" data-panel id="step-checkout" markdown="1">
+#### Check out the overlay
+
+{% capture step_checkout %}      - name: Check out the overlay
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false{% endcapture %}
+
+{% include source-lines.html source=step_checkout start=44 label="Check out the overlay, строки 44–47" %}
+
+Помещает файлы оверлея в рабочий каталог runner. [Разбор шага](#step-checkout-explained).
+</div>
+
+<div class="selection-panel step-detail" data-panel id="step-policy" markdown="1">
+#### Check overlay policy
+
+{% capture step_policy %}      - name: Check overlay policy
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py{% endcapture %}
+
+{% include source-lines.html source=step_policy start=49 label="Check overlay policy, строки 49–50" %}
+
+Проверяет правила репозитория до подготовки кандидата. [Разбор шага](#overlay-policy-step).
+</div>
+
+<div class="selection-panel step-detail" data-panel id="step-tests" markdown="1">
+#### Run unit tests
+
+{% capture step_tests %}      - name: Run unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v{% endcapture %}
+
+{% include source-lines.html source=step_tests start=52 label="Run unit tests, строки 52–53" %}
+
+Запускает тесты скриптов оверлея. [Разбор шага](#unit-tests-step).
+</div>
+
+<div class="selection-panel step-detail" data-panel id="step-candidate" markdown="1">
+#### Prepare and validate disposable candidate
+
+{% capture step_candidate %}{% raw %}      - name: Prepare and validate disposable candidate
+        id: prepare-and-validate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
+        run: scripts/ci/validate-release-candidate.sh{% endraw %}{% endcapture %}
+
+{% include source-lines.html source=step_candidate start=55 label="Prepare and validate disposable candidate, строки 55–60" %}
+
+Передаёт скрипту токен чтения и режим проверки. [Разбор шага](#step-preparation).
+</div>
+</div>
+
+### 2.6.2. Фиксируем время начала работы {#step-time}
+
+{% include source-preview.html source=run_clock label="Строки 40–42" path=workflow_path revision=reviewed_revision start=40 comment="#" open=true %}
+
+Отсчёт начинается до checkout, чтобы учесть время на получение
+репозитория. Начальное ожидание runner в этот интервал не входит. В последующих заданиях отсчёт от той же точки
+может включать ожидание между jobs. GitHub Actions читает `started_at`
+из файла шага `run-clock`. Строка 35 [объявляет его output задания](#job-outputs).
+
+<div class="figure selector command-anatomy" data-selector data-label="Фрагменты команды Bash" markdown="1">
+<h4>Как Bash записывает время</h4>
+<div class="annotated-command" data-selection-controls role="group" aria-label="Фрагменты команды Bash"><code><span data-select="cmd-echo">echo</span> "<span data-select="cmd-output">started_at=</span><span class="command-substitution" data-highlight-for="cmd-substitution"><span data-select="cmd-substitution" aria-label="Подстановка команды: $(date +%s)">$(</span><span data-select="cmd-date">date +%s</span>)</span>" <span data-select="cmd-append">&gt;&gt;</span> <span data-select="cmd-file">"$GITHUB_OUTPUT"</span></code></div>
+
+<div data-panel id="cmd-echo" markdown="1">
+**`echo`** печатает сформированный текст и перевод строки. Перенаправление отправляет эту строку в файл.
+</div>
+<div data-panel id="cmd-output" markdown="1">
+**`started_at=`** задаёт имя output в записи вида `имя=значение`. Для Bash это часть аргумента `echo`.
+</div>
+<div data-panel id="cmd-substitution" markdown="1">
+**`$(date +%s)`** запускает вложенную команду, убирает завершающий перевод строки из её вывода и подставляет число после `started_at=`.
+</div>
+<div data-panel id="cmd-date" markdown="1">
+**`date +%s`** печатает Unix timestamp, то есть число секунд с 1 января 1970 года, 00:00:00 UTC.
+</div>
+<div data-panel id="cmd-append" markdown="1">
+**`>>`** дописывает строку в конец файла. Одинарный `>` при открытии файла обнулил бы его содержимое.
+</div>
+<div data-panel id="cmd-file" markdown="1">
+**`"$GITHUB_OUTPUT"`** раскрывается в путь к файлу, который GitHub Actions выделяет этому шагу. Кавычки сохраняют путь целиком, даже если в нём есть пробелы.
+</div>
+</div>
+
+<figure class="figure lesson-figure" data-elapsed aria-labelledby="elapsed-title">
+  <h4 id="elapsed-title">От двух отметок к длительности</h4>
+  <div class="elapsed-axis">
+    <div><code>started_at</code><strong>1790000000</strong></div>
+    <span aria-hidden="true"></span>
+    <div><code>Текущий date +%s</code><strong data-current-time>1790000075</strong></div>
+  </div>
+  <label class="elapsed-slider" hidden data-elapsed-control>Прошло секунд <strong data-elapsed-seconds>75</strong><input type="range" min="0" max="600" value="75"></label>
+  <p class="lab-terminal" role="status"><code data-elapsed-equation>1790000075 − 1790000000 = 75 с</code><strong data-elapsed-duration>1 мин 15 с</strong></p>
+  <figcaption>Учебные значения. Разность Unix timestamps сразу даёт секунды, без перевода местного времени между часовыми поясами.</figcaption>
+</figure>
+
+### 2.6.3. Получаем копию нашего репозитория {#step-checkout-explained}
+
+{% include source-preview.html source=step_checkout label="Строки 44–47" path=workflow_path revision=reviewed_revision start=44 comment="#" open=true %}
+
+`actions/checkout` получает файлы репозитория для ревизии, связанной с
+событием запуска, и размещает их в `$GITHUB_WORKSPACE`. При запуске по
+расписанию это ревизия ветки по умолчанию, при ручном запуске — коммит
+выбранной ветки или тега. Здесь используется shallow checkout с
+`fetch-depth: 1` по умолчанию. В рабочем каталоге есть дерево файлов
+выбранного коммита, а глубина Git-истории ограничена одним коммитом.
+[Документация закреплённой версии checkout](https://github.com/actions/checkout/tree/3d3c42e5aac5ba805825da76410c181273ba90b1).
+
+<figure class="figure lesson-figure" aria-labelledby="checkout-tree-title">
+  <h4 id="checkout-tree-title">Как файлы попадают на runner</h4>
+  <ol class="lesson-flow checkout-flow" role="list">
+    <li class="flow-node"><strong>Репозиторий на GitHub</strong><small>Ревизия события</small></li>
+    <li class="flow-node"><strong><code>actions/checkout</code></strong><small>Получает файлы</small></li>
+    <li class="flow-node workspace"><strong>Ubuntu runner</strong>
+      <code>$GITHUB_WORKSPACE</code>
+      <pre aria-label="Дерево локальной копии"><code>├── .git/
+├── .github/
+├── app-editors/
+├── metadata/
+├── profiles/
+├── scripts/
+├── tests/
+├── AGENTS.md
+└── README.md</code></pre>
+      <small>Отсюда запускаются следующие команды.</small>
+    </li>
+  </ol>
+</figure>
+
+Ссылка `uses: actions/checkout@v7` выбирала бы ревизию, на которую сейчас
+указывает тег `v7`. Тег можно передвинуть. В строке 45 полный SHA закрепляет
+конкретный коммит action, а комментарий `# v7.0.1` помогает человеку
+узнать версию. Это тот же принцип выбора фиксированного содержимого, что
+и в [примере с тегом и дайджестом Docker](#job-env). Доверие к выбранному
+коду и наличие уязвимостей проверяют отдельно.
+
+### 2.6.4. Зачем нужен persist-credentials: false? {#checkout-credentials}
+
+{% capture checkout_input %}        with:
+          persist-credentials: false{% endcapture %}
+
+{% include source-preview.html source=checkout_input label="Строки 46–47" path=workflow_path revision=reviewed_revision start=46 comment="#" open=true %}
+
+[Разрешения Job 1](#check-token-permissions) определяют, что токен может
+делать на GitHub. `persist-credentials` определяет, останется ли после
+checkout настройка Git-аутентификации для следующих команд. При `false`
+сам токен задания остаётся доступен GitHub Actions. Шаг может явно
+получить его через контекст, как это сделано в [строке 58](#step-preparation).
+[Параметр в документации checkout v7](https://github.com/actions/checkout/tree/3d3c42e5aac5ba805825da76410c181273ba90b1#usage).
+
+<figure class="figure lesson-figure" data-credentials aria-labelledby="credentials-title">
+  <h4 id="credentials-title">Что остаётся после checkout</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Настройка checkout
+      <select>
+        <option value="false">persist-credentials: false</option>
+        <option value="true">persist-credentials: true</option>
+      </select>
+    </label>
+  </div>
+  <div class="credential-map">
+    <div class="credential-heading"><strong>Checkout action</strong><span>граница шага</span><strong>Следующие шаги</strong></div>
+    <div class="credential-lane" data-path="open"><span><span class="credential-icon file-icon" aria-hidden="true"></span> Файлы получены</span><span class="lane-connector" aria-hidden="true"></span><strong>Файлы доступны</strong></div>
+    <div class="credential-lane" data-path="closed" data-auth-lane><span><span class="credential-icon key-icon" aria-hidden="true"></span> Git-аутентификация</span><span class="lane-connector" aria-hidden="true"></span><strong data-auth-state>Настройка не передана</strong></div>
+  </div>
+  <p class="model-result" role="status" data-auth-result>Checkout оставляет файлы. Следующая команда Git не получает аутентификацию из настройки checkout.</p>
+</figure>
+
+Оверлею нужны локальные файлы для проверок, поэтому checkout оставляет
+аутентификацию только на время своего шага. При `true` последующие
+команды Git могли бы пользоваться сохранённой настройкой с теми же
+правами токена. При `false` последующие шаги всё ещё могут явно настроить
+свою аутентификацию или использовать токен для запросов к API.
+
+### 2.6.5. Проверяем правила нашего overlay {#overlay-policy-step}
+
+{% include source-preview.html source=step_policy label="Строки 49–50" path=workflow_path revision=reviewed_revision start=49 comment="#" open=true %}
+
+Присваивание перед командой передаёт переменную только запускаемому
+процессу и его окружению. `PYTHONDONTWRITEBYTECODE=1` просит Python не
+создавать кеши байт-кода `.pyc` при импорте. Скрипт по-прежнему может
+записывать другие файлы. `python3` запускает интерпретатор, а
+`scripts/overlay_policy.py` указывает файл проверки.
+
+Скрипт проверяет имя репозитория, `masters = gentoo` и
+`thin-manifests = true`, а также наличие `metadata.xml` и `Manifest`.
+Он ищет ebuild для Zed и для каждого ebuild проверяет ссылку в `PATCHES`
+на соответствующий версии Wayland-патч и наличие этого патча. Патч
+должен быть unified diff, сохранять Wayland и убирать X11 и screen capture.
+Добавление `x11`, `screen-capture` или `scap/wayland` вызывает ошибку.
+Отдельно проверяется, что Git не отслеживает `metadata/md5-cache`.
+
+{% capture policy_implementation %}    repository_root = repository_root.resolve()
+    repo_name_path = repository_root / "profiles/repo_name"
+    require_file(repo_name_path)
+    if repo_name_path.read_text(encoding="utf-8").strip() != REPOSITORY_NAME:
+        raise OverlayPolicyError(f"profiles/repo_name must be '{REPOSITORY_NAME}'.")
+
+    layout_path = repository_root / "metadata/layout.conf"
+    require_file(layout_path)
+    settings = layout_settings(layout_path)
+    for key, expected_value in REQUIRED_LAYOUT.items():
+        if settings.get(key) != expected_value:
+            raise OverlayPolicyError(
+                f"metadata/layout.conf must set {key} = {expected_value}."
+            )
+
+    package_dir = repository_root / PACKAGE_DIRECTORY
+    if not package_dir.is_dir():
+        raise OverlayPolicyError(f"Package directory is missing: {PACKAGE_DIRECTORY}.")
+    for required_name in ("metadata.xml", "Manifest"):
+        require_file(package_dir / required_name)
+
+    ebuilds = tuple(sorted(package_dir.glob("zed-*.ebuild")))
+    if not ebuilds:
+        raise OverlayPolicyError(f"No Zed ebuild found in {PACKAGE_DIRECTORY}.")
+    for ebuild_path in ebuilds:
+        if not PATCH_REFERENCE.search(ebuild_path.read_text(encoding="utf-8")):
+            raise OverlayPolicyError(
+                f"Ebuild must apply the Wayland-only patch through PATCHES: {ebuild_path}."
+            )
+        patch_path = package_dir / "files" / f"{ebuild_path.stem}-wayland-only.patch"
+        require_file(patch_path)
+        validate_wayland_patch(patch_path)
+
+    # В git archive нет .git. CI передаёт сохранённый список tracked-файлов,
+    # чтобы policy проверяла тот же снимок репозитория и в disposable workspace.
+    tracked = set(tracked_paths) if tracked_paths is not None else git_tracked_paths(repository_root)
+    if any(path == "metadata/md5-cache" or path.startswith("metadata/md5-cache/") for path in tracked):
+        raise OverlayPolicyError("Pregenerated metadata/md5-cache must not be tracked by Git."){% endcapture %}
+
+{% include source-preview.html source=policy_implementation label="Правила в validate_overlay, строки 113–150" path="scripts/overlay_policy.py" revision=source_revision start=113 %}
+
+<figure class="figure lesson-figure" data-policy-lab aria-labelledby="policy-lab-title">
+  <h4 id="policy-lab-title">Какая проверка остановит шаг?</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Учебный сценарий
+      <select>
+        <option value="">Все правила соблюдены</option>
+        <option value="name">Неверное имя репозитория</option>
+        <option value="layout">Отсутствует настройка layout</option>
+        <option value="manifest">Отсутствует Manifest</option>
+        <option value="patch">Патч добавляет X11</option>
+        <option value="cache">Git отслеживает кеш</option>
+      </select>
+    </label>
+  </div>
+  <ul class="policy-rules" role="list">
+    <li data-rule="name" data-failure="Указано other-overlay"><div><strong>Имя репозитория</strong><code>profiles/repo_name</code></div><span data-rule-state>Указано zed-overlay</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+    <li data-rule="layout" data-failure="Нет thin-manifests"><div><strong>Настройки layout</strong><code>metadata/layout.conf</code></div><span data-rule-state>Обе настройки заданы</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+    <li data-rule="manifest" data-failure="Нет Manifest"><div><strong>Метаданные пакета</strong><code>app-editors/zed/</code></div><span data-rule-state>Manifest и metadata.xml на месте</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+    <li data-rule="ebuild"><div><strong>Ebuild и ссылка на патч</strong><code>app-editors/zed/zed-*.ebuild</code></div><span data-rule-state>Есть ebuild, ссылки ведут к патчам своей версии</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+    <li data-rule="patch" data-failure="Патч добавляет x11"><div><strong>Wayland-патч</strong><code>app-editors/zed/files/*-wayland-only.patch</code></div><span data-rule-state>Wayland сохранён, запрещённых добавлений нет</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+    <li data-rule="cache" data-failure="Файл кеша отслеживается Git"><div><strong>Сгенерированный кеш</strong><code>metadata/md5-cache/</code></div><span data-rule-state>Git не отслеживает кеш</span><strong class="lesson-status" data-status="PASS">PASS</strong></li>
+  </ul>
+  <div class="lab-terminal" role="status"><div><code data-policy-result>overlay policy: OK</code><code data-policy-exit>Exit code: 0</code></div><small>Упрощённый вывод</small></div>
+  <p class="model-result" data-policy-note>Код 0 позволяет перейти к unit tests.</p>
+  <figcaption>Список моделирует состояние файлов. Реальный скрипт может остановиться на первом обнаруженном нарушении.</figcaption>
+</figure>
+
+Успех этой проверки подтверждает правила для исходных файлов. Отсутствие
+связей с X11 в готовом бинарнике проверяют отдельно при ручной приёмке
+пакета в Gentoo.
+
+### 2.6.6. Запускаем unit tests. {#unit-tests-step}
+
+{% include source-preview.html source=step_tests label="Строки 52–53" path=workflow_path revision=reviewed_revision start=52 comment="#" open=true %}
+
+`python3 -m unittest` запускает встроенный тестовый модуль Python.
+`discover` ищет тесты, `-s tests` задаёт начальный каталог, а `-v`
+выводит имена тестов и результаты. Автоматические тесты проверяют
+ожидаемое поведение кода на небольших примерах. Ошибки в логике лучше
+обнаружить до запуска ресурсоёмкой подготовки архива.
+
+<div class="selector figure test-explorer" data-selector data-label="Модули в tests/" markdown="1">
+<div class="selection-panel test-detail" data-panel data-label="test_watch_zed_release.py" id="module-watch_zed_release" markdown="1">
+#### `test_watch_zed_release.py`
+
+Поиск стабильного релиза в `watch_zed_release.py`. Из трёх тегов выбирает `v1.10.0`, сравнивая числа версий.
+
+{% capture sample_test %}    def test_selects_highest_release_numerically(self) -> None:
+        selected = WATCHER.latest_stable_release(
+            [release("v1.9.0"), release("v1.10.0"), release("v1.8.9")]
+        )
+
+        self.assertEqual(selected.version, (1, 10, 0)){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 79–84" path="tests/test_watch_zed_release.py" revision=source_revision start=79 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_prepare_zed_release.py" id="module-prepare_zed_release" markdown="1">
+#### `test_prepare_zed_release.py`
+
+Подготовка файлов новой версии в `prepare_zed_release.py`. Подготовка `1.16.0` сохраняет старые ebuild и патчи.
+
+{% capture sample_test %}    def test_prepares_new_version_without_removing_existing_files(self) -> None:
+        result = PREPARE.prepare_release(self.root, "1.16.0", dry_run=False)
+
+        self.assertEqual(result.outcome, "prepared")
+        self.assertEqual(result.plan.source.version, (1, 15, 0))
+        self.assertTrue((self.root / "app-editors/zed/zed-1.14.0.ebuild").is_file())
+        self.assertTrue((self.root / "app-editors/zed/zed-1.15.0.ebuild").is_file())
+        self.assertTrue(
+            (self.root / "app-editors/zed/files/zed-1.14.0-wayland-only.patch").is_file()
+        )
+        self.assertTrue(
+            (self.root / "app-editors/zed/files/zed-1.15.0-wayland-only.patch").is_file()
+        ){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 54–66" path="tests/test_prepare_zed_release.py" revision=source_revision start=54 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_check_zed_cargo_snapshot.py" id="module-check_zed_cargo_snapshot" markdown="1">
+#### `test_check_zed_cargo_snapshot.py`
+
+Сверка данных Cargo и WebRTC в `check_zed_cargo_snapshot.py`. Проверка отклоняет несовпадение версии WebRTC в `corgi.toml` и ebuild.
+
+{% capture sample_test %}    def test_rejects_upstream_webrtc_version_drift(self) -> None:
+        (self.source / "corgi.toml").write_text(
+            '''[tools.webrtc-prebuilt]
+version = "0001f00-7"
+''',
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            CHECKER.CargoSnapshotError,
+            "(?s)WEBRTC_COMMIT differs from upstream corgi.toml.*ebuild: 0001d84-4.*upstream: 0001f00-7",
+        ):
+            self.validate(){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 112–124" path="tests/test_check_zed_cargo_snapshot.py" revision=source_revision start=112 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_overlay_policy.py" id="module-overlay_policy" markdown="1">
+#### `test_overlay_policy.py`
+
+Правила репозитория в `overlay_policy.py`. После удаления `Manifest` проверка выдаёт ошибку.
+
+{% capture sample_test %}    def test_policy_rejects_missing_manifest(self) -> None:
+        (self.root / "app-editors/zed/Manifest").unlink()
+
+        with self.assertRaisesRegex(OverlayPolicyError, "Manifest"):
+            validate_overlay(self.root, tracked_paths=()){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 111–115" path="tests/test_overlay_policy.py" revision=source_revision start=111 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_release_handoff.py" id="module-release_handoff" markdown="1">
+#### `test_release_handoff.py`
+
+Подготовка и передача кандидата в `release_handoff.py`. Если версия актуальна, даже с `prepare=True` подготовка не вызывается и файлы остаются прежними.
+
+{% capture sample_test %}    def test_up_to_date_prepare_still_does_not_create_files(self) -> None:
+        before = self.snapshot()
+
+        with patch.object(HANDOFF.preparer, "prepare_release") as prepare_release:
+            result = HANDOFF.run_handoff(
+                self.root, FakeClient([release("v1.15.0")]), prepare=True
+            )
+
+        self.assertEqual(result.watch_result.outcome, "up-to-date")
+        self.assertIsNone(result.preparation)
+        prepare_release.assert_not_called()
+        self.assertEqual(self.snapshot(), before){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 146–157" path="tests/test_release_handoff.py" revision=source_revision start=146 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_independent_release.py" id="module-independent_release" markdown="1">
+#### `test_independent_release.py`
+
+Управление режимами в `scripts/ci/validate-release-candidate.sh`. В моделируемом validation-only запуске скрипт завершается успешно и оставляет `handoff_ready=false`.
+
+{% capture sample_test %}    def test_validation_only_never_creates_handoff(self) -> None:
+        result, output, handoff = self.run_validation(False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, 'handoff_ready=false\n')
+        self.assertFalse(handoff){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 179–183" path="tests/test_independent_release.py" revision=source_revision start=179 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_inspect_zed_archive.py" id="module-inspect_zed_archive" markdown="1">
+#### `test_inspect_zed_archive.py`
+
+Проверка архива crates в `inspect_zed_archive.py`. После подмены SHA512 в Manifest проверка отклоняет архив.
+
+{% capture sample_test %}    def test_manifest_digest_mismatch(self) -> None:
+        self.create_archive()
+        data = self.archive.read_bytes()
+        manifest = self.root / 'Manifest'
+        manifest.write_text(f'DIST {self.archive.name} {len(data)} BLAKE2B {hashlib.blake2b(data).hexdigest()} SHA512 {hashlib.sha512(data).hexdigest()}\n')
+        inspect.verify_manifest(self.archive, manifest)
+        manifest.write_text(manifest.read_text().replace(hashlib.sha512(data).hexdigest(), '0' * 128))
+        with self.assertRaisesRegex(ValueError, 'SHA512 mismatch'):
+            inspect.verify_manifest(self.archive, manifest){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 46–54" path="tests/test_inspect_zed_archive.py" revision=source_revision start=46 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_sync_zed_git_crates.py" id="module-sync_zed_git_crates" markdown="1">
+#### `test_sync_zed_git_crates.py`
+
+Обновление блока `GIT_CRATES` в `sync_zed_git_crates.py`. Для существующего crate старая ревизия A заменяется ревизией B.
+
+{% capture sample_test %}    def test_existing_dependency_revision_is_updated(self) -> None:
+        self.setup_generated(['old'])
+        self.assertIn(A, self.candidate.read_text())
+        self.assertEqual(self.run_sync(), 1)
+        self.assertIn(entry('old', B, 'repo-%commit%/old'), self.candidate.read_text())
+        self.assertNotIn(A, self.candidate.read_text()){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 69–74" path="tests/test_sync_zed_git_crates.py" revision=source_revision start=69 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_verify_zed_source.py" id="module-verify_zed_source" markdown="1">
+#### `test_verify_zed_source.py`
+
+Сверка архива исходников с Git-деревом в `verify_zed_source.py`. Изменение `Cargo.lock`, прав исполняемого файла, ссылки или состава файлов вызывает ошибку.
+
+{% capture sample_test %}    def test_rejects_changed_content_mode_symlink_or_missing_file(self) -> None:
+        for args in ({'lock': b'changed'}, {'executable': False}, {'link': '../outside'}, {'omit_lock': True}):
+            with self.subTest(args=args):
+                self.make_archive(**args)
+                with self.assertRaises(source.SourceVerificationError):
+                    source.verify_archive(self.archive, 'zed-1.2.3', self.expected){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 55–60" path="tests/test_verify_zed_source.py" revision=source_revision start=55 %}
+</div>
+
+<div class="selection-panel test-detail" data-panel data-label="test_crates_distribution.py" id="module-crates_distribution" markdown="1">
+#### `test_crates_distribution.py`
+
+Поиск опубликованного архива для `crates_distribution.py` через `crates_github.py`. Отсутствующий релиз ведёт к генерации. Конфликтующий тег или ошибка сети останавливают поиск.
+
+{% capture sample_test %}    def test_absent_selects_generation_and_failures_do_not(self):
+        self.assertEqual(gh.lookup(FakeClient(), VERSION)[0], 'generation')
+        client = FakeClient(state='tag')
+        with self.assertRaises(gh.GitHubError): gh.lookup(client, VERSION)
+        with patch.object(client, 'api', side_effect=gh.GitHubError('network')):
+            with self.assertRaises(gh.GitHubError): gh.lookup(client, VERSION){% endcapture %}
+
+{% include source-preview.html source=sample_test label="Тест в исходнике, строки 248–253" path="tests/test_crates_distribution.py" revision=source_revision start=248 %}
+</div>
+</div>
+
+В [историческом запуске 44148805330](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330)
+прошли 119 тестов. В том запуске watcher повторно использовал опубликованный архив.
+
+<figure class="figure lesson-figure" data-gates aria-labelledby="gates-title">
+  <h4 id="gates-title">Когда начнётся подготовка кандидата?</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Результаты проверок
+      <select>
+        <option value="pass">Все проверки прошли</option>
+        <option value="policy">Ошибка в overlay policy</option>
+        <option value="tests">Ошибка в unit tests</option>
+      </select>
+    </label>
+  </div>
+  <ol class="lesson-flow gate-flow" role="list">
+    <li class="flow-node"><strong>Checkout</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node"><strong>Overlay policy</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node"><strong>Unit tests</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="START"><strong>Prepare candidate</strong><span class="lesson-status" data-status="START">START</span></li>
+  </ol>
+  <p class="model-result" role="status" data-gate-result>Подготовка может начаться. START обозначает вход в следующий шаг.</p>
+</figure>
+
+По умолчанию шаги продолжаются, пока предыдущие завершались успешно.
+Так быстрые проверки останавливают обычную цепочку до дорогой части.
+Диагностические шаги с `if: always()` могут выполняться и после ошибки.
+
+### 2.6.7. Передаём управление основному скрипту. {#step-preparation}
+
+{% include source-preview.html source=step_candidate label="Строки 55–60" path=workflow_path revision=reviewed_revision start=55 comment="#" open=true %}
+
+По идентификатору `prepare-and-validate` [outputs задания](#job-outputs)
+читают результаты этого шага. Блок `env` передаёт ему две переменные. `GITHUB_TOKEN` нужен для чтения GitHub API, а
+`INDEPENDENT_VALIDATION` задаёт режим проверки. Переменные [уровня задания](#job-env), включая ссылки на
+образы Gentoo, также доступны скрипту. Строка 60 запускает Bash-скрипт
+из checkout оверлея.
+
+<figure class="figure lesson-figure" aria-labelledby="token-flow-title">
+  <h4 id="token-flow-title">Как токен Job 1 доходит до запроса</h4>
+  <ol class="lesson-flow token-flow" role="list">
+    <li class="flow-node"><strong>GitHub Actions</strong><code>{% raw %}${{ github.token }}{% endraw %}</code><small>Токен Job 1 · <code>contents: read</code></small></li>
+    <li class="flow-node"><strong><code>env</code> шага</strong><code>GITHUB_TOKEN</code></li>
+    <li class="flow-node"><strong><code>validate-release-candidate.sh</code></strong><small><code>release_handoff.py</code> вызывает watcher</small></li>
+    <li class="flow-node"><strong>GitHub API</strong><small>Запрос списка релизов Zed</small></li>
+  </ol>
+</figure>
+
+Дочерний процесс обычно наследует окружение родителя. Передача токена
+через `env` задаёт область его доступности, а изоляцию процессов
+нужно обеспечивать отдельно. Так, перед установкой `pycargoebuild`
+`env -u GITHUB_TOKEN` убирает переменную из окружения конкретного
+запуска Python с `pip install`.
+
+{% capture pip_env %}  env -u GITHUB_TOKEN "$work/venv/bin/python" -m pip install 'pycargoebuild==0.16.0'{% endcapture %}
+
+{% include source-preview.html source=pip_env label="Окружение pip install, строка 64" path=docker_path revision=source_revision start=64 comment="#" %}
+
+### 2.6.8. Разбираем логическое выражение. {#validation-expression}
+
+{% capture validation_expr %}{% raw %}          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=validation_expr label="Строка 59" path=workflow_path revision=reviewed_revision start=59 comment="#" open=true %}
+
+`github.event_name` читает имя события из контекста GitHub Actions.
+`== 'workflow_dispatch'` проверяет, запустил ли workflow человек.
+Первое `&&` переходит к булевому `inputs.independent_validation` только
+при истинном сравнении. Следующее `&&` доходит до строки `'true'` только
+при истинном input. `||` выбирает строку `'false'`, если левая часть
+ложна. Если слева уже выбрана непустая строка `'true'`, правый операнд
+`||` пропускается.
+
+Такое вычисление называют *коротким замыканием*. `&&` и `||` проверяют
+истинность операндов и возвращают значение выбранного операнда. Поэтому
+шаблон `условие && значение || запасное_значение` работает, когда
+`значение` считается истинным. Здесь итогом становится одна из двух
+строк, а input ручного запуска остаётся булевым.
+[Выражения GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions).
+
+<figure class="figure lesson-figure expression-lab" data-expression data-route="schedule" aria-labelledby="expression-title">
+  <h4 id="expression-title">Как вычисляется INDEPENDENT_VALIDATION</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Событие
+      <select data-expression-event>
+        <option value="schedule">schedule</option>
+        <option value="workflow_dispatch">workflow_dispatch</option>
+      </select>
+    </label>
+    <label hidden data-manual-control><input type="checkbox" data-expression-input disabled> <code>independent_validation</code></label>
+    <small data-schedule-note>Ручной input недоступен</small>
+  </div>
+  <code class="expression-code">{% raw %}${{ <span data-part="event" data-eval="read">github.event_name == 'workflow_dispatch'</span> &amp;&amp; <span data-part="input" data-eval="skip">inputs.independent_validation</span> &amp;&amp; <span data-part="true" data-eval="skip">'true'</span> || <span data-part="false" data-eval="result">'false'</span> }}{% endraw %}</code>
+  <ul class="expression-key" aria-label="Обозначения подсветки" role="list">
+    <li data-eval="read">Вычислено</li><li data-eval="skip">Пропущено</li><li data-eval="result">Выбранный результат</li>
+  </ul>
+  <div class="expression-trace">
+    <div class="trace-node trace-event"><strong>1. Сравнение события</strong><code data-event-value>schedule → false</code></div>
+    <div class="trace-edge trace-manual" data-edge="manual"><span aria-hidden="true">↓</span> <code>&amp;&amp;</code> · ручной запуск</div>
+    <div class="trace-edge trace-shortcut" data-edge="schedule"><span>Сравнение ложно</span><small><code>||</code> · input пропущен</small><b aria-hidden="true">↓</b></div>
+    <div class="trace-node trace-input" data-eval="skip"><strong>2. Булев input</strong><code data-input-value>Не вычисляется</code></div>
+    <div class="trace-edge trace-true-edge" data-edge="enabled"><span aria-hidden="true">↓</span> <code>&amp;&amp;</code> · input true</div>
+    <div class="trace-edge trace-false-edge" data-edge="fallback"><span aria-hidden="true">↘</span> <code>||</code> · input false</div>
+    <div class="trace-node trace-true" data-eval="skip"><strong>3. Строка <code>'true'</code></strong></div>
+    <div class="trace-node trace-false" data-eval="result"><strong>3. Строка <code>'false'</code></strong></div>
+    <div class="trace-edge trace-final"><span aria-hidden="true">↓</span> <code>env</code></div>
+  </div>
+  <div class="lab-terminal" role="status"><code data-expression-result>INDEPENDENT_VALIDATION="false"</code><strong data-expression-mode>Production mode</strong></div>
+  <p class="model-result" data-expression-note>Сравнение ложно. Ветка с input пропущена, поэтому результат даёт <code>||</code>.</p>
+  <noscript><p>При ручном запуске input по умолчанию равен false, и выражение выбирает строку «false». Если отметить input, выражение дойдёт до строки «true» и пропустит правый операнд <code>||</code>.</p></noscript>
+</figure>
+
+В **Production mode** новый кандидат может дойти до публикации, если
+выполнены остальные условия workflow. В **Validation-only mode** скрипт
+готовит и проверяет нового кандидата без release handoff для публикации.
+Если пакет уже актуален, новый кандидат не создаётся ни в одном режиме.
+
+### 2.6.9. Что такое disposable candidate? {#disposable-candidate}
+
+{% capture candidate_archive %}  echo "handoff_ready=false" >> "$GITHUB_OUTPUT"
+  git -C "$GITHUB_WORKSPACE" ls-files -z > "$tracked_paths"
+  mkdir -p "$disposable_workspace"
+  # Проверяем архив HEAD, а не рабочий checkout: подготовка candidate не должна
+  # загрязнять исходное дерево, а в архив не попадает каталог .git.
+  git -C "$GITHUB_WORKSPACE" archive HEAD | tar -x -C "$disposable_workspace"
+  test ! -e "$disposable_workspace/.git"{% endcapture %}
+
+{% include source-preview.html source=candidate_archive label="Строки 125–131" path=candidate_path revision=source_revision start=125 comment="#" open=true %}
+
+`validate-release-candidate.sh` проверяет, есть ли новая версия Zed, и
+готовит её в отдельном временном каталоге. Если править исходный checkout,
+кандидат смешался бы с базовой версией, относительно которой проверяются
+изменения. `git archive HEAD` экспортирует дерево коммита: локальные
+правки, неотслеживаемые файлы и служебный каталог `.git/` в экспорт не
+попадают. `tar -x` распаковывает поток во временный каталог. Список из
+`git ls-files -z` сохраняется отдельно, чтобы проверка политики по-прежнему
+могла обнаружить отслеживаемый Git кеш в копии без `.git/`.
+
+<figure class="figure lesson-figure" aria-labelledby="candidate-tree-title">
+  <h4 id="candidate-tree-title">Где меняются файлы кандидата</h4>
+  <div class="candidate-workspaces">
+    <div class="workspace">
+      <strong>Исходный checkout</strong><code>$GITHUB_WORKSPACE</code>
+      <pre aria-label="Файлы исходного checkout"><code>├── .git/
+├── app-editors/zed/
+│   ├── Manifest
+│   ├── zed-*.ebuild
+│   └── files/…patch
+└── scripts/</code></pre>
+      <small>После проверки <code>git status</code> должен оставаться чистым.</small>
+    </div>
+    <div class="workspace-transfer"><span aria-hidden="true"></span><code>git archive HEAD<br>| tar -x</code></div>
+    <div class="workspace workspace-candidate">
+      <strong>Временная копия</strong><code>$RUNNER_TEMP/zed-overlay</code>
+      <pre aria-label="Дерево экспортированных файлов"><code>├── app-editors/zed/
+│   ├── Manifest
+│   ├── zed-*.ebuild
+│   └── files/…patch
+└── scripts/</code></pre>
+      <small>Снимок коммита без <code>.git/</code></small>
+      <ol class="candidate-changes">
+        <li>Добавляется ebuild кандидата</li>
+        <li>Готовится или переиспользуется патч версии</li>
+        <li>Обновляется Manifest</li>
+        <li>Кандидат проходит проверки</li>
+      </ol>
+    </div>
+    <div class="handoff-branch"><span aria-hidden="true">↓</span><small>Только новая версия, успешная проверка и Production mode</small><strong>Release handoff с ограниченным набором файлов</strong></div>
+  </div>
+</figure>
+
+`release_handoff.py --prepare` обнаруживает новую версию и при необходимости
+готовит ebuild и патч. Для нового кандидата `independent-crates.sh`
+готовит или переиспользует архив crates и выполняет проверки, включая
+обновление Manifest. Основной скрипт затем проверяет политику временной
+копии и чистоту исходного checkout, чтобы поймать случайные изменения
+в базовом дереве. Файлы кандидата меняются в отдельном каталоге того же runner.
+Границы изоляции процессов от этого не меняются.
+
+На успешном производственном пути для новой версии `create_release_handoff`
+собирает проверенный набор файлов для передачи дальше. При
+`up-to-date` и в режиме Validation-only handoff для публикации
+не создаётся.
+
+{% capture candidate_finish %}  validate_disposable_policy "$disposable_workspace" "$tracked_paths"
+  assert_source_workspace_clean
+
+  if [ "$validation_mode" = true ]; then
+    echo "Total candidate preparation and validation: $((SECONDS - total_started))s" | tee -a "$GITHUB_STEP_SUMMARY"
+    echo "Validation-only: release handoff disabled"
+  elif grep -Fxq 'Result: new-release' "$prepare_log"; then
+    local archive_mode
+    archive_mode="$(cat "$RUNNER_TEMP/zed-independent/logs/result.txt")"
+    case "$archive_mode" in generation|reuse) ;; *) echo "Invalid archive mode" >&2; exit 1 ;; esac
+    echo "archive_mode=$archive_mode" >> "$GITHUB_OUTPUT"
+    create_release_handoff
+  fi{% endcapture %}
+
+{% include source-preview.html source=candidate_finish label="Проверки и условие handoff, строки 157–169" path=candidate_path revision=source_revision start=157 comment="#" %}

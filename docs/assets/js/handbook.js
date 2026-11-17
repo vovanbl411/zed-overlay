@@ -28,10 +28,15 @@ function initTheme(control) {
 function initSelector(container) {
   const panels = [...container.querySelectorAll(':scope > [data-panel]')];
   const source = container.querySelector(':scope > [data-source-lines]');
-  const controls = source ?? document.createElement('div');
+  const authored = container.querySelector(':scope > [data-selection-controls]');
+  const controls = source ?? authored ?? document.createElement('div');
   const lines = source ? [...source.querySelectorAll('[data-line]')] : [];
+  const authoredControls = new Map(
+    [...(authored?.querySelectorAll('[data-select]') ?? [])].map((item) => [item.dataset.select, item])
+  );
+  const highlights = authored?.querySelectorAll('[data-highlight-for]') ?? [];
 
-  if (!source) {
+  if (!source && !authored) {
     controls.className = 'selection-controls';
     controls.setAttribute('role', 'group');
     controls.setAttribute('aria-label', container.dataset.label);
@@ -39,7 +44,8 @@ function initSelector(container) {
   }
 
   const buttons = panels.map((panel, index) => {
-    const button = document.createElement('button');
+    const item = authoredControls.get(panel.id);
+    const button = item?.tagName === 'BUTTON' ? item : document.createElement('button');
     button.type = 'button';
     button.setAttribute('aria-controls', panel.id);
     button.addEventListener('click', () => select(index));
@@ -51,7 +57,11 @@ function initSelector(container) {
       button.setAttribute('aria-label', panel.dataset.label + '. ' + code);
       rows[0].before(button);
       button.append(...rows);
-    } else {
+    } else if (item && item !== button) {
+      button.textContent = item.textContent;
+      if (item.hasAttribute('aria-label')) button.setAttribute('aria-label', item.getAttribute('aria-label'));
+      item.replaceWith(button);
+    } else if (!item) {
       button.textContent = panel.dataset.label;
       controls.append(button);
     }
@@ -63,6 +73,9 @@ function initSelector(container) {
       panel.hidden = index !== active;
       buttons[index].setAttribute('aria-pressed', String(index === active));
     });
+    highlights.forEach((item) => {
+      item.classList.toggle('is-selected', item.dataset.highlightFor === panels[active].id);
+    });
   }
 
   const content = document.createElement('div');
@@ -70,6 +83,7 @@ function initSelector(container) {
   content.append(...panels);
   container.append(content);
   select(0);
+  if (authored) authored.hidden = false;
 }
 
 export function simulate(scenario, validationOnly, branch) {
@@ -323,6 +337,159 @@ function initImageReference(figure) {
   controls.hidden = false;
 }
 
+function initElapsed(figure) {
+  const control = figure.querySelector('[data-elapsed-control]');
+  const slider = control.querySelector('input');
+  const startedAt = Number(figure.querySelector('.elapsed-axis strong').textContent);
+  const current = figure.querySelector('[data-current-time]');
+  const seconds = figure.querySelector('[data-elapsed-seconds]');
+  const equation = figure.querySelector('[data-elapsed-equation]');
+  const duration = figure.querySelector('[data-elapsed-duration]');
+
+  function render() {
+    const elapsed = slider.valueAsNumber;
+    const now = startedAt + elapsed;
+    const minutes = Math.floor(elapsed / 60);
+    const formatted = `${minutes} мин ${elapsed % 60} с`;
+    current.textContent = now;
+    seconds.textContent = elapsed;
+    equation.textContent = `${now} − ${startedAt} = ${elapsed} с`;
+    duration.textContent = formatted;
+    slider.setAttribute('aria-valuetext', formatted);
+  }
+
+  slider.addEventListener('input', render);
+  render();
+  control.hidden = false;
+}
+
+function initSelectLab(figure, render) {
+  const controls = figure.querySelector('[data-lab-controls]');
+  const select = controls.querySelector('select');
+  const update = () => render(select.value);
+  select.addEventListener('change', update);
+  update();
+  controls.hidden = false;
+}
+
+function initCredentials(figure) {
+  const lane = figure.querySelector('[data-auth-lane]');
+  const state = figure.querySelector('[data-auth-state]');
+  const result = figure.querySelector('[data-auth-result]');
+  initSelectLab(figure, (value) => {
+    const persist = value === 'true';
+    lane.dataset.path = persist ? 'open' : 'closed';
+    state.textContent = persist ? 'Настройка Git доступна' : 'Настройка не передана';
+    result.textContent = persist
+      ? 'Следующая команда Git может использовать настройку checkout с прежними правами токена.'
+      : 'Checkout оставляет файлы. Следующая команда Git не получает аутентификацию из настройки checkout.';
+  });
+}
+
+function setLessonStatus(label, status) {
+  label.dataset.status = status;
+  label.textContent = status;
+}
+
+function initPolicyLab(figure) {
+  const notes = {
+    name: 'Имя должно совпадать с zed-overlay.',
+    layout: 'Для этого оверлея требуется thin-manifests = true.',
+    manifest: 'Пакету нужен Manifest.',
+    patch: 'Добавление X11 нарушает правило о Wayland-патче.',
+    cache: 'Сгенерированный кеш должен оставаться за пределами Git.'
+  };
+  const rules = [...figure.querySelectorAll('[data-rule]')].map((row) => {
+    const state = row.querySelector('[data-rule-state]');
+    return { row, state, normal: state.textContent, badge: row.querySelector('[data-status]') };
+  });
+  const result = figure.querySelector('[data-policy-result]');
+  const exit = figure.querySelector('[data-policy-exit]');
+  const note = figure.querySelector('[data-policy-note]');
+
+  initSelectLab(figure, (value) => {
+    rules.forEach(({ row, state, normal, badge }) => {
+      const failed = row.dataset.rule === value;
+      row.classList.toggle('rule-failed', failed);
+      setLessonStatus(badge, failed ? 'FAIL' : 'PASS');
+      state.textContent = failed ? row.dataset.failure : normal;
+    });
+    result.textContent = value ? 'overlay policy: FAILED' : 'overlay policy: OK';
+    exit.textContent = value ? 'Exit code: 1' : 'Exit code: 0';
+    note.textContent = value
+      ? `${notes[value]} Код 1 останавливает обычную цепочку шагов.`
+      : 'Код 0 позволяет перейти к unit tests.';
+  });
+}
+
+function initGates(figure) {
+  const scenarios = {
+    pass: ['PASS', 'PASS', 'PASS', 'START'],
+    policy: ['PASS', 'FAIL', 'SKIP', 'SKIP'],
+    tests: ['PASS', 'PASS', 'FAIL', 'SKIP']
+  };
+  const outcomes = {
+    pass: 'Подготовка может начаться. START обозначает вход в следующий шаг.',
+    policy: 'Overlay policy завершилась ошибкой. Unit tests и подготовка пропущены.',
+    tests: 'Unit tests завершились с ошибкой. Подготовка пропущена.'
+  };
+  const labels = figure.querySelectorAll('.lesson-status');
+  const outcome = figure.querySelector('[data-gate-result]');
+  initSelectLab(figure, (value) => {
+    labels.forEach((label, index) => {
+      const status = scenarios[value][index];
+      setLessonStatus(label, status);
+      label.parentElement.dataset.gateState = status;
+    });
+    outcome.textContent = outcomes[value];
+  });
+}
+
+function initExpression(figure) {
+  const controls = figure.querySelector('[data-lab-controls]');
+  const event = controls.querySelector('[data-expression-event]');
+  const input = controls.querySelector('[data-expression-input]');
+  const manualControl = input.closest('label');
+  const scheduleNote = controls.querySelector('[data-schedule-note]');
+  const eventValue = figure.querySelector('[data-event-value]');
+  const inputValue = figure.querySelector('[data-input-value]');
+  const result = figure.querySelector('[data-expression-result]');
+  const mode = figure.querySelector('[data-expression-mode]');
+  const note = figure.querySelector('[data-expression-note]');
+  const operand = (key) => figure.querySelector(`[data-part="${key}"]`);
+  const inputNode = figure.querySelector('.trace-input');
+  const trueNode = figure.querySelector('.trace-true');
+  const falseNode = figure.querySelector('.trace-false');
+  const notes = {
+    schedule: 'Сравнение ложно. Ветка с input пропущена, поэтому результат даёт ||.',
+    fallback: 'Сравнение истинно, input ложен. Второй && пропускает строку «true», и || выбирает «false».',
+    enabled: 'Обе проверки истинны. Второй && возвращает строку «true», поэтому || пропускает запасное значение.'
+  };
+
+  function render() {
+    const manual = event.value === 'workflow_dispatch';
+    const enabled = manual && input.checked;
+    const route = manual ? (enabled ? 'enabled' : 'fallback') : 'schedule';
+
+    input.disabled = !manual;
+    manualControl.hidden = !manual;
+    scheduleNote.hidden = manual;
+    figure.dataset.route = route;
+    eventValue.textContent = `${event.value} → ${manual}`;
+    inputValue.textContent = manual ? String(input.checked) : 'Не вычисляется';
+    operand('input').dataset.eval = inputNode.dataset.eval = manual ? 'read' : 'skip';
+    operand('true').dataset.eval = trueNode.dataset.eval = enabled ? 'result' : 'skip';
+    operand('false').dataset.eval = falseNode.dataset.eval = enabled ? 'skip' : 'result';
+    result.textContent = `INDEPENDENT_VALIDATION="${enabled}"`;
+    mode.textContent = enabled ? 'Validation-only mode' : 'Production mode';
+    note.textContent = notes[route];
+  }
+
+  controls.addEventListener('change', render);
+  render();
+  controls.hidden = false;
+}
+
 if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-theme-control]').forEach(initTheme);
   document.querySelectorAll('[data-selector]').forEach(initSelector);
@@ -334,4 +501,9 @@ if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-timeout]').forEach(initTimeout);
   document.querySelectorAll('[data-output-flow]').forEach(initOutputFlow);
   document.querySelectorAll('[data-image-reference]').forEach(initImageReference);
+  document.querySelectorAll('[data-elapsed]').forEach(initElapsed);
+  document.querySelectorAll('[data-credentials]').forEach(initCredentials);
+  document.querySelectorAll('[data-policy-lab]').forEach(initPolicyLab);
+  document.querySelectorAll('[data-gates]').forEach(initGates);
+  document.querySelectorAll('[data-expression]').forEach(initExpression);
 }
