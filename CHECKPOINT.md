@@ -10,9 +10,13 @@ Generation took 937 seconds, including about 903 seconds for repacking; total
 candidate preparation and validation took 1,058 seconds. All 94 tests passed.
 
 Stage 2 implements independent release publication and reuse through the
-existing three-job workflow. Its publication and reuse paths have not yet been
-validated by a live workflow run. Manual Gentoo build, linkage, native Wayland
-runtime acceptance, and the merge decision remain required.
+existing three-job workflow. Production [run 44142769356](https://github.com/vovanbl411/zed-overlay/actions/runs/44142769356)
+published the archive, then failed on trailing whitespace before creating the
+automation branch. After the whitespace fix,
+[run 44148805330](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330)
+reused the archive and opened [Draft PR #46](https://github.com/vovanbl411/zed-overlay/pull/46).
+Manual Gentoo build, linkage checks, and native Wayland runtime verification
+remain the acceptance gates.
 
 ## Completed
 
@@ -92,5 +96,5 @@ post-sync hook to refresh the external cache automatically; it does not put
 
 ## Current next step
 
-Validate Stage 2 with an owner-initiated production run and a subsequent reuse
-run. Reconcile any remaining snapshot failures manually.
+Review the 1.28.1 candidate and complete manual Gentoo acceptance. Reconcile
+any remaining snapshot failures manually.

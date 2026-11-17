@@ -1,0 +1,8 @@
+title: Zed Overlay — Under the Hood
+lang: ru
+baseurl: /zed-overlay
+markdown: kramdown
+highlighter: rouge
+exclude:
+  - CI_AND_SECURITY.md
+  - CI_AND_SECURITY.en.md

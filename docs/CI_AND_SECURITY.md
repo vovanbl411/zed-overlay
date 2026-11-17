@@ -98,9 +98,13 @@ Stage 1 прошёл в [run 44129394269](https://github.com/vovanbl411/zed-over
 для Zed v1.28.1: 1 439 registry crates, 86 Git-зависимостей, 130 033 452 байта,
 SHA256 архива `44c617444e1778db623e403f6782ee9dab3b2ede03b352c5c32ec7723fcf1ea3`.
 Генерация заняла 937 секунд, из них repacking около 903 секунд; общая подготовка
-и проверка candidate — 1 058 секунд. Все 94 теста прошли. Публикация и reuse
-Stage 2 ещё не проверены реальным запуском. Ручная сборка в Gentoo, проверка
-linkage и запуска в Wayland, а также решение о merge остаются обязательными.
+и проверка candidate — 1 058 секунд. Все 94 теста прошли. [Запуск 44142769356](https://github.com/vovanbl411/zed-overlay/actions/runs/44142769356)
+опубликовал архив Stage 2, затем остановился из-за пробелов в ebuild до
+создания automation branch. После исправления
+[запуск 44148805330](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330)
+повторно использовал архив и открыл [Draft PR #46](https://github.com/vovanbl411/zed-overlay/pull/46).
+Для приёмки по-прежнему нужны ручная сборка в Gentoo, проверка динамических
+зависимостей и проверка запуска в Wayland. Решение о merge принимает владелец.
 
 Только для нового релиза создаётся sanitized handoff artifact. Отдельный
 read-only job проверяет точный состав его файлов и соответствие base commit

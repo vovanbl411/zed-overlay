@@ -89,3 +89,26 @@ Zed и не проверяет его работу. Для проверки но
 
 Описание автоматических проверок релиза и их ограничений см. в документе
 [«CI и модель безопасности»](docs/CI_AND_SECURITY.md).
+
+## Инженерный справочник
+
+[Zed Overlay — Under the Hood](docs/index.md) объясняет устройство оверлея
+на примере обновления Zed с 1.27.0 до 1.28.1. Первая глава знакомит с release
+watcher и содержит учебный симулятор.
+
+Для локального предпросмотра нужны Ruby, Jekyll 3.10 и Python 3. Выполните
+из корня репозитория:
+
+```sh
+preview_dir="$(mktemp -d)"
+jekyll build --safe --source docs --destination "$preview_dir/zed-overlay"
+python3 -m http.server 4000 --bind 127.0.0.1 --directory "$preview_dir"
+```
+
+Откройте [http://127.0.0.1:4000/zed-overlay/](http://127.0.0.1:4000/zed-overlay/).
+Для просмотра после правок снова выполните команду сборки. Jekyll читает
+Markdown из `docs/` и добавляет префикс `/zed-overlay` к ссылкам справочника.
+
+Фрагменты GitHub Actions с выражениями вида `${{ github.sha }}` в Markdown
+справочника оборачивайте целиком, вместе с ограждением блока кода, в пару
+`{% raw %}` и `{% endraw %}`. Так Jekyll сохранит выражения при обработке Liquid.
