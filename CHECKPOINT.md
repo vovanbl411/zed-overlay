@@ -9,10 +9,14 @@ The 130,033,452-byte archive had SHA256
 Generation took 937 seconds, including about 903 seconds for repacking; total
 candidate preparation and validation took 1,058 seconds. All 94 tests passed.
 
-Stage 2 implements independent release publication and reuse through the
-existing three-job workflow. Its publication and reuse paths have not yet been
-validated by a live workflow run. Manual Gentoo build, linkage, native Wayland
-runtime acceptance, and the merge decision remain required.
+Stage 2 has been live-validated for archive generation, publication, reuse,
+and Draft PR creation. Production [run 44142769356](https://github.com/vovanbl411/zed-overlay/actions/runs/44142769356)
+generated and published the archive, then failed on trailing whitespace before
+creating the automation branch. After the whitespace fix,
+[run 44148805330](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330)
+reused the archive and opened [Draft PR #46](https://github.com/vovanbl411/zed-overlay/pull/46).
+Manual Gentoo build, linkage checks, and native Wayland runtime verification
+remain the acceptance gates.
 
 ## Completed
 
@@ -27,7 +31,8 @@ Iris Xe Vulkan adapter and reached `Authenticated`.
 
 ### Current package
 
-The current stable ebuild is `app-editors/zed-1.27.0`. Automation has confirmed:
+Zed 1.28.1 is the current packaged version. [PR #46](https://github.com/vovanbl411/zed-overlay/pull/46)
+merged `app-editors/zed/zed-1.28.1.ebuild` into `main`. Automation has confirmed:
 
 - stable release discovery and deterministic candidate preparation;
 - Manifest generation and `emerge -pv` dependency resolution;
@@ -37,11 +42,10 @@ The current stable ebuild is `app-editors/zed-1.27.0`. Automation has confirmed:
 - controlled publish job, exact release Git diff allowlist, automation branch,
   and Draft PR creation.
 
-Automation does not compile or runtime-test Zed. Manual Gentoo runtime
-acceptance for 1.21.0 is complete: Portage built and installed the package,
-runtime-linkage checks passed, and native Wayland startup completed without an
-X11 `DISPLAY`. Zed 1.21.0 is runtime-validated on amd64. The arm64 build and
-runtime have not been tested.
+Automation does not compile or runtime-test Zed. Manual build, linkage, and
+runtime acceptance for 1.28.1 are unverified. Zed 1.21.0 on amd64 remains the
+last explicitly verified runtime baseline. The arm64 build and runtime have
+not been tested.
 
 ### Zed 1.25.2 release candidate (2026-10-23)
 
@@ -92,5 +96,7 @@ post-sync hook to refresh the external cache automatically; it does not put
 
 ## Current next step
 
-Validate Stage 2 with an owner-initiated production run and a subsequent reuse
-run. Reconcile any remaining snapshot failures manually.
+Release automation through Stage 2 is complete. The handbook's introduction
+and release watcher chapter passed visual and implementation review. Phase 1
+is in finalization on `feat/docs-site`. Manual Gentoo acceptance for 1.28.1
+remains a separate task.

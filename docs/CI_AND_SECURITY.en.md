@@ -95,9 +95,13 @@ for Zed v1.28.1: 1,439 registry crates, 86 Git dependencies, 130,033,452 bytes,
 and archive SHA256 `44c617444e1778db623e403f6782ee9dab3b2ede03b352c5c32ec7723fcf1ea3`.
 Generation took 937 seconds, including approximately 903 seconds repacking;
 total candidate preparation and validation took 1,058 seconds. All 94 tests
-passed. Stage 2 publication and reuse have not yet been validated by a live run.
-The manual Gentoo build, linkage checks, native Wayland runtime acceptance, and
-merge decision remain required.
+passed. Production [run 44142769356](https://github.com/vovanbl411/zed-overlay/actions/runs/44142769356)
+published the Stage 2 archive, then failed on trailing whitespace before
+creating the automation branch. After the fix,
+[run 44148805330](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330)
+reused the archive and opened [Draft PR #46](https://github.com/vovanbl411/zed-overlay/pull/46).
+Acceptance still requires a manual Gentoo build, linkage checks, and native
+Wayland runtime verification. The owner decides whether to merge.
 
 Only a new release produces a sanitized handoff artifact. A separate read-only
 job checks its exact file layout and confirms that its base commit matches the

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="{{ site.lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title | escape }} · {{ site.title | escape }}</title>
+  <link rel="stylesheet" href="{{ '/assets/css/handbook.css' | relative_url }}">
+  <link rel="icon" href="data:,">
+  <script type="module" src="{{ '/assets/js/handbook.js' | relative_url }}"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">К содержанию</a>
+  <header class="topbar">
+    <a class="brand" href="{{ '/' | relative_url }}">
+      <svg class="brand-mark" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="currentColor"/>
+        <path d="M9 10h14L9 22h14" fill="none" stroke="var(--paper)" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      Zed Overlay <span> / Under the Hood</span>
+    </a>
+    <div class="top-actions">
+      <a class="source-link" href="https://github.com/vovanbl411/zed-overlay">GitHub ↗</a>
+      <label hidden data-theme-control>Тема
+        <select aria-label="Тема оформления">
+          <option value="system">Как в системе</option>
+          <option value="dark">Тёмная</option>
+          <option value="light">Светлая</option>
+        </select>
+      </label>
+    </div>
+  </header>
+  <div class="shell{% if page.chapter %} chapter-shell{% endif %}">
+    {% include navigation.html %}
+    {% if page.chapter %}
+    <nav class="page-nav" aria-label="Разделы главы">
+      <p class="eyebrow">В этой главе</p>
+      <ol>
+        <li><a href="#problem">1.1. Задача</a></li>
+        <li><a href="#glossary">1.2. Компоненты</a></li>
+        <li><a href="#workflow">1.3. Workflow и runner</a></li>
+        <li><a href="#jobs">1.4. Три этапа</a></li>
+        <li><a href="#artifacts">1.5. Поток данных</a></li>
+        <li><a href="#lab">1.6. Лаборатория</a></li>
+        <li><a href="#history">1.7. История v1.28.1</a></li>
+        <li><a href="#quiz">1.8. Самопроверка</a></li>
+      </ol>
+    </nav>
+    {% endif %}
+    <main id="content" tabindex="-1">
+      <header class="page-header">
+        <p class="eyebrow">{% if page.chapter %}Глава 01 / Автоматизация релизов{% else %}Инженерный справочник{% endif %}</p>
+        <h1>{{ page.title | escape }}</h1>
+        {% if page.description %}<p class="lead">{{ page.description | escape }}</p>{% endif %}
+      </header>
+      {{ content }}
+    </main>
+  </div>
+</body>
+</html>

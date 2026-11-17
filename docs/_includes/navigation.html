@@ -1,0 +1,14 @@
+<aside class="sidebar">
+  <nav aria-label="Главы справочника">
+    <p class="eyebrow">Содержание</p>
+    <ul>
+      <li><a href="{{ '/' | relative_url }}"{% unless page.chapter %} aria-current="page"{% endunless %}>Введение</a></li>
+      <li><a href="{{ '/internals/01-release-watcher/' | relative_url }}"{% if page.chapter %} aria-current="page"{% endif %}><span>01</span> Release watcher</a></li>
+      <li class="planned"><span>02</span> Shell scripts <small>В планах</small></li>
+      <li class="planned"><span>03</span> Python scripts <small>В планах</small></li>
+      <li class="planned"><span>04</span> Ebuild <small>В планах</small></li>
+      <li class="planned"><span>05</span> Wayland patches <small>В планах</small></li>
+      <li class="planned"><span>06</span> Troubleshooting <small>В планах</small></li>
+    </ul>
+  </nav>
+</aside>
