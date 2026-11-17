@@ -30,10 +30,17 @@ jobs:
       contents: read
     outputs:
       handoff_ready: ${{ steps.prepare-and-validate.outputs.handoff_ready }}
+      archive_mode: ${{ steps.prepare-and-validate.outputs.archive_mode }}
+      metadata_sha256: ${{ steps.prepare-and-validate.outputs.metadata_sha256 }}
+      started_at: ${{ steps.run-clock.outputs.started_at }}
     env:
       GENTOO_PORTAGE_IMAGE: gentoo/portage@sha256:ce69e5b771bfe9404731e846b835346c34f2c82817ac3626f13af198689a1961
       GENTOO_STAGE3_IMAGE: gentoo/stage3@sha256:d8536e52677e3efe4caf048ca588bc685bc2d24d7fdfc882de1cdc6d38c81d96
     steps:
+      - name: Record workflow start
+        id: run-clock
+        run: echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Check out the overlay
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -52,8 +59,8 @@ jobs:
           INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
         run: scripts/ci/validate-release-candidate.sh
 
-      - name: Preserve independent validation logs
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.independent_validation
+      - name: Preserve crates validation logs
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: independent-validation-logs
@@ -71,6 +78,29 @@ jobs:
           path: ${{ runner.temp }}/release-handoff
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload crates distribution bundle
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report check processing time
+        if: always()
+        env:
+          CHECK_STARTED_AT: ${{ steps.run-clock.outputs.started_at }}
+          HANDOFF_READY: ${{ steps.prepare-and-validate.outputs.handoff_ready }}
+        run: |
+          if [[ "$CHECK_STARTED_AT" =~ ^[0-9]+$ ]]; then
+            elapsed=$(( $(date +%s) - CHECK_STARTED_AT ))
+            echo "Check processing: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$HANDOFF_READY" != true ]]; then
+              echo "Total workflow processing: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
   # Перед job с правами на запись повторно сверяем handoff с commit,
   # для которого запущен workflow.
@@ -94,14 +124,27 @@ jobs:
           name: release-handoff
           path: ${{ runner.temp }}/release-handoff
 
+      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+
       - name: Validate release handoff boundary
+        env:
+          EXPECTED_METADATA_SHA256: ${{ needs.check.outputs.metadata_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
             --validate-handoff "$RUNNER_TEMP/release-handoff" \
             --expected-base-commit "$GITHUB_SHA"
-          echo "Release handoff boundary: OK"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+            --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" --base-commit "$GITHUB_SHA" \
+            --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256"
+          echo "Release handoff and distribution boundaries: OK"
 
   # PR создаётся только после успешной проверки handoff и при запуске из main;
   # остальные события не доходят до job с правами на запись.
@@ -130,6 +173,12 @@ jobs:
           name: release-handoff
           path: ${{ runner.temp }}/release-handoff
 
+      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+
       - name: Apply validated release handoff
         id: apply-handoff
         shell: bash
@@ -142,6 +191,7 @@ jobs:
             exit 1
           fi
           base_commit="$(git rev-parse HEAD)"
+          cp "$GITHUB_WORKSPACE/app-editors/zed/Manifest" "$RUNNER_TEMP/base-Manifest"
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
             --apply-handoff "$RUNNER_TEMP/release-handoff" \
             --repository-root "$GITHUB_WORKSPACE" \
@@ -151,10 +201,40 @@ jobs:
       - name: Check overlay policy after handoff apply
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py
 
+      - name: Publish validated crates release
+        id: publish-crates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE_VERSION: ${{ steps.apply-handoff.outputs.candidate_version }}
+          ARCHIVE_MODE: ${{ needs.check.outputs.archive_mode }}
+          EXPECTED_METADATA_SHA256: ${{ needs.check.outputs.metadata_sha256 }}
+          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_github.py publish \
+            --version "$CANDIDATE_VERSION" --expected-mode "$ARCHIVE_MODE" \
+            --base-commit "$GITHUB_SHA" --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" \
+            --base-manifest "$RUNNER_TEMP/base-Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Publish Draft release PR
         env:
           GITHUB_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.apply-handoff.outputs.branch }}
           CANDIDATE_VERSION: ${{ steps.apply-handoff.outputs.candidate_version }}
           PATCH_CREATED: ${{ steps.apply-handoff.outputs.patch_created }}
+          ARCHIVE_MODE: ${{ needs.check.outputs.archive_mode }}
+          PUBLICATION_RESULT: ${{ steps.publish-crates.outputs.publication_result }}
+          DISTRIBUTION_BUNDLE: ${{ runner.temp }}/crates-distribution
         run: scripts/ci/publish-release-pr.sh
+
+      - name: Report workflow processing time
+        if: always()
+        env:
+          CHECK_STARTED_AT: ${{ needs.check.outputs.started_at }}
+        run: |
+          if [[ "$CHECK_STARTED_AT" =~ ^[0-9]+$ ]]; then
+            echo "Total workflow processing: $(( $(date +%s) - CHECK_STARTED_AT ))s" >> "$GITHUB_STEP_SUMMARY"
+          fi

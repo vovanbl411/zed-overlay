@@ -32,12 +32,11 @@ def block(text: str) -> tuple[int, int, str]:
     raise snapshot.CargoSnapshotError("Unterminated GIT_CRATES block.")
 
 
-def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, snapshot.GitCrate]:
+def parse_entries(generated: str) -> list[dict[str, str]]:
     _, _, declaration = block(generated)
-    crates = snapshot.parse_git_crates(declaration)
-    errors = snapshot.compare_snapshots(snapshot.parse_lock(source / "Cargo.lock"), crates)
-    if errors:
-        raise snapshot.CargoSnapshotError("\n".join(errors))
+    snapshot.parse_git_crates(declaration)
+    entries = []
+    archive_origins: dict[tuple[str, str], str] = {}
     for line in declaration.splitlines()[1:-1]:
         if not line.strip():
             continue
@@ -47,15 +46,42 @@ def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, sna
         name, value = match.groups()
         repository, commit, unpack = value.split(";")
         repo = REPO.fullmatch(repository)
-        if not NAME.fullmatch(name) or not repo or not SHA.fullmatch(commit):
+        if (not NAME.fullmatch(name) or not repo or not SHA.fullmatch(commit) or
+                repo.group(1) in ('.', '..') or repo.group(2) in ('.', '..')):
             raise snapshot.CargoSnapshotError(f"Unsupported generated entry: {name!r}.")
         repo_name = repo.group(2)
         if repo_name.endswith('.git'):
             raise snapshot.CargoSnapshotError(f"Unsupported repository spelling: {repository!r}.")
+        archive_key = (repo_name, commit)
+        if archive_key in archive_origins and archive_origins[archive_key] != repository:
+            raise snapshot.CargoSnapshotError(f"Conflicting Git archive names for {name!r}.")
+        archive_origins[archive_key] = repository
         components = unpack.split('/')
         if (not components or components[0] != f"{repo_name}-%commit%" or
                 any(not PART.fullmatch(p) or p in ('.', '..') for p in components[1:])):
             raise snapshot.CargoSnapshotError(f"Unsafe unpack path for {name!r}: {unpack!r}.")
+        entries.append({'name': name, 'repository': repository, 'revision': commit, 'unpack_path': unpack})
+    return entries
+
+
+def entries_block(entries: list[dict[str, str]]) -> str:
+    declaration = 'declare -A GIT_CRATES=(\n' + ''.join(
+        f"\t[{e['name']}]='{e['repository']};{e['revision']};{e['unpack_path']}'\n" for e in entries
+    ) + ')\n'
+    parse_entries(declaration)
+    return declaration
+
+
+def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, snapshot.GitCrate]:
+    _, _, declaration = block(generated)
+    entries = parse_entries(declaration)
+    crates = snapshot.parse_git_crates(declaration)
+    errors = snapshot.compare_snapshots(snapshot.parse_lock(source / "Cargo.lock"), crates)
+    if errors:
+        raise snapshot.CargoSnapshotError("\n".join(errors))
+    for entry in entries:
+        name, repository, commit, unpack = (entry[k] for k in ('name', 'repository', 'revision', 'unpack_path'))
+        repo_name = repository.rsplit('/', 1)[1]
         archive = cache / f"{repo_name}-{commit}.gh.tar.gz"
         member_name = str(PurePosixPath(unpack.replace('%commit%', commit)) / 'Cargo.toml')
         try:

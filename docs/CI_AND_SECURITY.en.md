@@ -46,37 +46,58 @@ cleanliness checks still run.
 Container checks run only on amd64. The arm64 build and runtime have not been
 tested.
 
-### Independent crates validation (Stage 1)
+### Independent crates releases (Stage 2)
 
-On a manual `workflow_dispatch`, set `independent_validation` to `true` to
-exercise independent archive generation for a newly discovered stable release.
-Select the branch containing this implementation. If the watcher reports
-`up-to-date`, no candidate is generated. Scheduled runs and manual runs with
-the option disabled retain the normal release path.
+For each new stable release, the check job resolves the upstream tag to a
+commit, downloads the source archive from the ebuild's `SRC_URI`, and verifies
+its files and modes against that commit. The same archive is used for Cargo
+metadata, snapshot validation, and the Manifest.
 
-The check job resolves the upstream tag to a commit, downloads the source
-archive from the ebuild's `SRC_URI`, and verifies its files and modes against
-the commit's Git tree. It uses that archive for generation, validation, and
-the Manifest. An isolated `pycargoebuild 0.16.0` generates
-`zed-<version>-overlay-crates.tar.xz` and a metadata ebuild. The generated
-`GIT_CRATES` entries are parsed without executing the ebuild and checked against
-`Cargo.lock` and the downloaded Git sources before they replace the block in the
-disposable candidate. License differences are reported for review; existing
-offline substitutions, system dependencies, and the Wayland policy remain curated.
-Changes requiring manual reconciliation fail the snapshot check.
+The check job looks for `crates-v<version>` in this repository. If the published
+release and Git tag are absent, an isolated `pycargoebuild 0.16.0` creates
+`zed-<version>-overlay-crates.tar.xz` and its JSON metadata. If the release is
+published, the job downloads and validates both expected assets and the required
+Git sources without running pycargoebuild. API, network, identity, checksum, or
+missing-asset errors stop the run. The read-only token cannot see every draft;
+the write job checks for conflicting drafts before making changes.
 
-Portage validates the candidate using a separate distfile directory, including
-the generated archive and exact source archive. The job verifies the Manifest
-digests for both archives and reports timings, counts, and hashes in the step
-summary. Diagnostic logs are retained as a short-lived workflow artifact. This
-mode always disables the release handoff and the publish job; it does not upload
-a release asset or create a branch or PR. No live GitHub Actions run of this
-path is recorded yet.
+The version 1 JSON metadata records the upstream tag, commit, source archive and
+`Cargo.lock` SHA256 values, generator identity, archive filename, size and
+SHA256, validated `GIT_CRATES` entries, and generated license expressions. It is data,
+not an ebuild. The separate distribution artifact contains exactly the archive
+and JSON; the existing sanitized release handoff remains unchanged. Both are
+validated in the read-only job and again before publication; the metadata
+SHA256 is passed separately as a check-job output. Existing Manifest
+distfile records must remain unchanged.
 
-Later stages are intended to publish archives to this repository's GitHub
-Releases under `crates-v<version>` and to add persistent archive reuse. Neither
-publication nor persistent caching is implemented in Stage 1. The existing
-manual Gentoo build, runtime acceptance, and merge decisions remain required.
+On `main`, the write job checks the fresh checkout against the handoff base,
+then either verifies an identical published release or creates a draft release,
+uploads and verifies both assets, and publishes it. The new tag targets the
+validated base commit. It checks the unauthenticated public downloads and the
+Manifest before creating a Draft PR. Existing assets are never overwritten.
+A conflicting tag, incomplete draft, mismatched asset, or failed verification
+stops the run. To recover, inspect the release and tag in GitHub, resolve the
+conflict manually, and rerun; the workflow does not delete or repair them.
+For an incomplete draft, the owner can inspect its assets and remove or repair
+the draft after deciding it is safe. A standalone tag or mismatched published
+release requires a separate owner decision; do not move the tag or overwrite
+assets merely to make the workflow pass.
+
+On manual `workflow_dispatch`, `independent_validation=true` exercises the
+same preparation and validation without handing off or publishing anything.
+If the watcher reports `up-to-date`, no archive is generated or published.
+Step summaries report timings, counts, hashes, archive selection, and license
+differences; diagnostic logs are retained as a short-lived workflow artifact.
+Persistent registry caching remains out of scope.
+
+Stage 1 passed in [run 44129394269](https://github.com/vovanbl411/zed-overlay/actions/runs/44129394269)
+for Zed v1.28.1: 1,439 registry crates, 86 Git dependencies, 130,033,452 bytes,
+and archive SHA256 `44c617444e1778db623e403f6782ee9dab3b2ede03b352c5c32ec7723fcf1ea3`.
+Generation took 937 seconds, including approximately 903 seconds repacking;
+total candidate preparation and validation took 1,058 seconds. All 94 tests
+passed. Stage 2 publication and reuse have not yet been validated by a live run.
+The manual Gentoo build, linkage checks, native Wayland runtime acceptance, and
+merge decision remain required.
 
 Only a new release produces a sanitized handoff artifact. A separate read-only
 job checks its exact file layout and confirms that its base commit matches the

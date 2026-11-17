@@ -1,5 +1,19 @@
 # Checkpoint: native Wayland-only Zed
 
+## Release automation status
+
+Stage 1 passed in GitHub Actions run 44129394269 for Zed v1.28.1. It used
+pycargoebuild 0.16.0 and validated 1,439 registry crates and 86 Git crates.
+The 130,033,452-byte archive had SHA256
+`44c617444e1778db623e403f6782ee9dab3b2ede03b352c5c32ec7723fcf1ea3`.
+Generation took 937 seconds, including about 903 seconds for repacking; total
+candidate preparation and validation took 1,058 seconds. All 94 tests passed.
+
+Stage 2 implements independent release publication and reuse through the
+existing three-job workflow. Its publication and reuse paths have not yet been
+validated by a live workflow run. Manual Gentoo build, linkage, native Wayland
+runtime acceptance, and the merge decision remain required.
+
 ## Completed
 
 ### Native baseline
@@ -13,7 +27,7 @@ Iris Xe Vulkan adapter and reached `Authenticated`.
 
 ### Current package
 
-The current package is `app-editors/zed-1.21.0`. Automation has confirmed:
+The current stable ebuild is `app-editors/zed-1.27.0`. Automation has confirmed:
 
 - stable release discovery and deterministic candidate preparation;
 - Manifest generation and `emerge -pv` dependency resolution;
@@ -62,13 +76,11 @@ This candidate is not runtime-validated.
 
 ## Technical debt
 
-Release preparation still copies the previous ebuild, but automation now
-fail-closes when its version-sensitive Cargo Git dependency snapshot
-(`GIT_CRATES` and related offline path substitutions) differs from the exact
-upstream `Cargo.lock` or `Cargo.toml`. Automation only detects drift; a human
-must reconcile the ebuild snapshot. `emerge -pv` does not prove that the full
-offline Cargo source graph is correct, so a manual full build remains a
-required acceptance gate.
+Release preparation copies the previous ebuild and synchronizes `GIT_CRATES`
+from validated metadata. The snapshot gate still fails closed if the curated
+offline substitutions or WebRTC pin differ from upstream and need manual
+reconciliation. `emerge -pv` does not prove the complete offline Cargo source
+graph, so a manual full build remains a required acceptance gate.
 
 ### Portage sync integration
 
@@ -80,5 +92,5 @@ post-sync hook to refresh the external cache automatically; it does not put
 
 ## Current next step
 
-For future Zed release candidates, use the Cargo Git dependency snapshot gate
-to detect drift, then reconcile any reported ebuild changes manually.
+Validate Stage 2 with an owner-initiated production run and a subsequent reuse
+run. Reconcile any remaining snapshot failures manually.

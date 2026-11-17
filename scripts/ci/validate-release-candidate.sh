@@ -36,68 +36,6 @@ validate_candidate_paths() {
   candidate_version="${candidate_version%.ebuild}"
 }
 
-validate_candidate_in_container() {
-  local disposable_workspace="$1"
-
-  docker create --name zed-portage "$GENTOO_PORTAGE_IMAGE" /bin/true
-  cleanup() {
-    docker rm -f zed-portage >/dev/null 2>&1 || true
-  }
-  trap cleanup EXIT
-  docker run --rm \
-    --volumes-from zed-portage \
-    --mount "type=bind,src=$disposable_workspace,dst=/overlay" \
-    --workdir /overlay \
-    --env CANDIDATE_ATOM="$candidate_atom" \
-    --env CANDIDATE_EBUILD="/overlay/$candidate_ebuild" \
-    --env CANDIDATE_PATCH="/overlay/$candidate_patch" \
-    --env CANDIDATE_VERSION="$candidate_version" \
-    "$GENTOO_STAGE3_IMAGE" \
-    /bin/bash -e -c '
-      mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
-      # Используем заранее заполненный Gentoo tree и подключённый overlay
-      # как отдельные репозитории Portage, чтобы проверить candidate без sync.
-      printf "%s\n" \
-        "[DEFAULT]" \
-        "main-repo = gentoo" \
-        "" \
-        "[gentoo]" \
-        "location = /var/db/repos/gentoo" \
-        "auto-sync = no" \
-        "" \
-        "[zed-overlay]" \
-        "location = /overlay" \
-        "masters = gentoo" \
-        "auto-sync = no" \
-        > /etc/portage/repos.conf/zed-overlay.conf
-      printf "%s ~amd64\n" "$CANDIDATE_ATOM" \
-        > /etc/portage/package.accept_keywords/zed-candidate
-      printf "%s\n" \
-        "media-libs/vulkan-loader wayland" \
-        "media-video/pipewire sound-server" \
-        > /etc/portage/package.use/zed-validation
-      # Manifest обновляет Portage на этапе проверки ebuild; команда --prepare
-      # выше обязана оставить исходный Manifest без изменений.
-      ebuild "$CANDIDATE_EBUILD" manifest
-      emerge -pv --oneshot "$CANDIDATE_ATOM"
-      patch_root="$(mktemp -d)"
-      distdir="$(portageq envvar DISTDIR)"
-      test -n "$distdir"
-      source_archive="$distdir/zed-${CANDIDATE_VERSION}.tar.gz"
-      test -f "$source_archive"
-      tar -xzf "$source_archive" -C "$patch_root"
-      PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_zed_cargo_snapshot.py \
-        --ebuild "$CANDIDATE_EBUILD" \
-        --source "$patch_root/zed-${CANDIDATE_VERSION}"
-      if patch --dry-run -p1 -d "$patch_root/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"; then
-        echo "Wayland patch dry-run: OK"
-      else
-        echo "ERROR: Wayland patch dry-run failed" >&2
-        exit 1
-      fi
-    '
-}
-
 validate_manifest_update() {
   local manifest_checksum="$1"
 
@@ -152,12 +90,21 @@ assert_source_workspace_clean() {
 
 create_release_handoff() {
   local handoff_directory="$RUNNER_TEMP/release-handoff"
+  local metadata_hash
 
   PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
     --create-handoff "$handoff_directory" \
     --candidate-version "$candidate_version" \
     --base-commit "$GITHUB_SHA"
-  echo "Sanitized release handoff: OK"
+  metadata_hash="$(sha256sum "$RUNNER_TEMP/crates-distribution/zed-${candidate_version}-overlay-crates.json" | cut -d' ' -f1)"
+  [[ "$metadata_hash" =~ ^[0-9a-f]{64}$ ]]
+  PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+    --bundle "$RUNNER_TEMP/crates-distribution" --handoff "$handoff_directory" \
+    --base-commit "$GITHUB_SHA" --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+    --metadata-sha256 "$metadata_hash"
+  echo "Sanitized release handoff and distribution bundle: OK"
+  echo "Metadata SHA256: $metadata_hash" | tee -a "$GITHUB_STEP_SUMMARY"
+  echo "metadata_sha256=$metadata_hash" >> "$GITHUB_OUTPUT"
   echo "handoff_ready=true" >> "$GITHUB_OUTPUT"
 }
 
@@ -194,16 +141,13 @@ main() {
 
   if grep -Fxq 'Result: new-release' "$prepare_log"; then
     validate_candidate_paths "$before_paths"
-    if [ "$validation_mode" = true ]; then
-      "$disposable_workspace/scripts/ci/independent-crates.sh" \
-        "$candidate_version" "$disposable_workspace/$candidate_ebuild" \
-        "$disposable_workspace/$candidate_patch" "$disposable_workspace"
-    else
-      validate_candidate_in_container "$disposable_workspace"
-    fi
+    "$disposable_workspace/scripts/ci/independent-crates.sh" \
+      "$candidate_version" "$disposable_workspace/$candidate_ebuild" \
+      "$disposable_workspace/$candidate_patch" "$disposable_workspace"
     validate_manifest_update "$manifest_checksum"
   else
     grep -Fxq 'Result: up-to-date' "$prepare_log"
+    echo 'Result: up-to-date' >> "$GITHUB_STEP_SUMMARY"
     mapfile -d '' -t candidate_paths < <(
       comm -z -13 "$before_paths" <(find app-editors/zed -type f -print0 | sort -z)
     )
@@ -217,6 +161,10 @@ main() {
     echo "Total candidate preparation and validation: $((SECONDS - total_started))s" | tee -a "$GITHUB_STEP_SUMMARY"
     echo "Validation-only: release handoff disabled"
   elif grep -Fxq 'Result: new-release' "$prepare_log"; then
+    local archive_mode
+    archive_mode="$(cat "$RUNNER_TEMP/zed-independent/logs/result.txt")"
+    case "$archive_mode" in generation|reuse) ;; *) echo "Invalid archive mode" >&2; exit 1 ;; esac
+    echo "archive_mode=$archive_mode" >> "$GITHUB_OUTPUT"
     create_release_handoff
   fi
 }
