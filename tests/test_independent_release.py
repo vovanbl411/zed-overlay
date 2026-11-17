@@ -13,6 +13,41 @@ ROOT = Path(__file__).parents[1]
 
 
 class IndependentReleaseTests(unittest.TestCase):
+    def test_reuse_branch_does_not_prepare_or_run_generator(self) -> None:
+        script = (ROOT / 'scripts/ci/independent-crates.sh').read_text()
+        prefix, main = script.split("\nsummary '## Independent crates preparation'", 1)
+        overrides = '''
+acquire_source() { :; }
+prepare_portage() { :; }
+prepare_generator() { touch "$MOCK_GENERATOR"; return 99; }
+generate() { touch "$MOCK_GENERATOR"; return 99; }
+reuse() { : > "$archive"; : > "$metadata"; }
+verify_inputs() { :; }
+sync_metadata() { :; }
+validate_candidate() { :; }
+cleanup() { :; }
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            python = bindir / 'python3'
+            python.write_text('#!/bin/sh\nprintf "reuse\\n"\n')
+            python.chmod(0o755)
+            summary = root / 'summary'
+            summary.touch()
+            env = os.environ.copy()
+            env.update(PATH=f'{bindir}:' + env['PATH'], RUNNER_TEMP=str(root),
+                       GITHUB_STEP_SUMMARY=str(summary), MOCK_GENERATOR=str(root / 'generator-ran'))
+            result = subprocess.run(['bash', '-c', prefix + '\n' + overrides +
+                                     "\nsummary '## Independent crates preparation'" + main,
+                                     'test', '1.2.3', str(root / 'candidate'),
+                                     str(root / 'patch'), str(ROOT)],
+                                    env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((root / 'generator-ran').exists())
+            self.assertEqual((root / 'zed-independent/logs/result.txt').read_text(), 'reuse\n')
+
     def test_source_acquisition_uses_src_uri_and_rejects_commit_mismatch(self) -> None:
         script = (ROOT / 'scripts/ci/independent-crates.sh').read_text()
         acquisition = script.split('\nprepare_generator() {', 1)[0] + '\nacquire_source\n'
@@ -84,7 +119,8 @@ cp "$MOCK_ARCHIVE" "$dest"
             self.assertEqual(result.returncode, 42)
             self.assertFalse((root / 'output.tar.xz').exists())
 
-    def run_validation(self, failure: bool, *, normal: bool = False) -> tuple[subprocess.CompletedProcess[str], str, bool]:
+    def run_validation(self, failure: bool, *, normal: bool = False,
+                       production: bool = False) -> tuple[subprocess.CompletedProcess[str], str, bool]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture = root / 'fixture'
@@ -93,7 +129,8 @@ cp "$MOCK_ARCHIVE" "$dest"
             (fixture / 'app-editors/zed/Manifest').write_text('old manifest')
             helper = fixture / 'scripts/ci/independent-crates.sh'
             helper.parent.mkdir(parents=True)
-            helper.write_text('#!/bin/bash\n' + ('exit 23\n' if failure else 'echo new > app-editors/zed/Manifest\n'))
+            helper.write_text('#!/bin/bash\n' + ('exit 23\n' if failure else
+                              'echo new > app-editors/zed/Manifest\nmkdir -p "$RUNNER_TEMP/zed-independent/logs" "$RUNNER_TEMP/crates-distribution"\necho generation > "$RUNNER_TEMP/zed-independent/logs/result.txt"\necho metadata > "$RUNNER_TEMP/crates-distribution/zed-1.1.0-overlay-crates.json"\n'))
             helper.chmod(0o755)
             bindir = root / 'bin'
             bindir.mkdir()
@@ -131,8 +168,8 @@ esac
                        RUNNER_TEMP=str(temp), GITHUB_OUTPUT=str(output),
                        GITHUB_STEP_SUMMARY=str(summary), GITHUB_SHA='a' * 40,
                        GENTOO_PORTAGE_IMAGE='image', GENTOO_STAGE3_IMAGE='image',
-                       GITHUB_EVENT_NAME='schedule' if normal else 'workflow_dispatch',
-                       INDEPENDENT_VALIDATION='false' if normal else 'true',
+                       GITHUB_EVENT_NAME='schedule' if normal or production else 'workflow_dispatch',
+                       INDEPENDENT_VALIDATION='false' if normal or production else 'true',
                        MOCK_UP_TO_DATE='1' if normal else '0',
                        MOCK_FIXTURE=str(fixture), MOCK_HANDOFF=str(root / 'published'))
             result = subprocess.run([str(ROOT / 'scripts/ci/validate-release-candidate.sh')],
@@ -157,12 +194,44 @@ esac
         self.assertEqual(output, 'handoff_ready=false\n')
         self.assertFalse(handoff)
 
+    def test_production_new_release_requires_validated_archive_handoff(self) -> None:
+        result, output, handoff = self.run_validation(False, production=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(output, r'^handoff_ready=false\narchive_mode=generation\nmetadata_sha256=[0-9a-f]{64}\nhandoff_ready=true\n$')
+        self.assertTrue(handoff)
+
     def test_workflow_adds_independent_guards_without_write_permissions(self) -> None:
         workflow = (ROOT / '.github/workflows/zed-release-watcher.yml').read_text()
         self.assertIn('timeout-minutes: 90', workflow)
         self.assertGreaterEqual(workflow.count("!(github.event_name == 'workflow_dispatch' && inputs.independent_validation)"), 3)
         self.assertEqual(workflow.count('contents: write'), 1)
         self.assertEqual(workflow.count('pull-requests: write'), 1)
+
+    def test_existing_pr_and_unexpected_branch_never_push(self) -> None:
+        script = (ROOT / 'scripts/ci/publish-release-pr.sh').read_text().rsplit('\nmain "$@"', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary = root / 'summary'
+            summary.touch()
+            env = os.environ.copy()
+            env.update(GITHUB_TOKEN='test-token', GITHUB_API_URL='https://api.github.com',
+                       GITHUB_REPOSITORY='vovanbl411/zed-overlay', GITHUB_REPOSITORY_OWNER='vovanbl411',
+                       GITHUB_STEP_SUMMARY=str(summary), RUNNER_TEMP=str(root), BRANCH='automation/zed-v1.2.3',
+                       CANDIDATE_VERSION='1.2.3', PATCH_CREATED='true', ARCHIVE_MODE='generation',
+                       PUBLICATION_RESULT='generation', DISTRIBUTION_BUNDLE=str(root), MARKER=str(root / 'push'))
+            common = '''
+validate_release_diff() { :; }
+commit_and_push_branch() { touch "$MARKER"; }
+create_draft_pr() { touch "$MARKER"; }
+'''
+            for existing in (True, False):
+                override = common + ('\nfind_existing_pr() { existing_pr_url="https://example.invalid/pr"; }\n'
+                                     if existing else
+                                     '\nfind_existing_pr() { existing_pr_url=""; }\ngithub_api() { printf 200; }\n')
+                result = subprocess.run(['bash', '-c', script + override + '\nmain\n'],
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0 if existing else 1, result.stderr)
+                self.assertFalse((root / 'push').exists())
 
 
 if __name__ == '__main__':

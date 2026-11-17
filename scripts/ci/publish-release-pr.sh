@@ -10,6 +10,14 @@ set -euo pipefail
 : "${BRANCH:?BRANCH is required}"
 : "${CANDIDATE_VERSION:?CANDIDATE_VERSION is required}"
 : "${PATCH_CREATED:?PATCH_CREATED is required}"
+: "${ARCHIVE_MODE:?ARCHIVE_MODE is required}"
+: "${PUBLICATION_RESULT:?PUBLICATION_RESULT is required}"
+: "${DISTRIBUTION_BUNDLE:?DISTRIBUTION_BUNDLE is required}"
+[[ "$CANDIDATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+case "$ARCHIVE_MODE:$PUBLICATION_RESULT" in
+  generation:generation|generation:reuse|reuse:reuse) ;;
+  *) echo "ERROR: invalid archive/publication result" >&2; exit 1 ;;
+esac
 
 github_api() {
   curl --silent --show-error \
@@ -130,14 +138,29 @@ create_draft_pr() {
   local pr_response="$RUNNER_TEMP/zed-release-pr.json"
   local pr_url
 
-  payload="$(python3 - "$CANDIDATE_VERSION" "$BRANCH" <<'PY'
+  payload="$(PYTHONDONTWRITEBYTECODE=1 python3 - "$CANDIDATE_VERSION" "$BRANCH" "$ARCHIVE_MODE" "$PUBLICATION_RESULT" "$DISTRIBUTION_BUNDLE" <<'PY'
 import json
 import sys
+from pathlib import Path
+sys.path.insert(0, 'scripts')
+import crates_distribution as distribution
+import sync_zed_git_crates as sync
 
-version, branch = sys.argv[1:]
+version, branch, mode, publication, bundle = sys.argv[1:]
+metadata = distribution.read_metadata(Path(bundle) / distribution.names(version)[1], version)
+candidate = Path(f'app-editors/zed/zed-{version}.ebuild').read_text(encoding='utf-8')
+generated_terms = set(' '.join(metadata['licenses']).split())
+generated_only = sorted(generated_terms - sync.license_terms(candidate))
+candidate_only = sorted(sync.license_terms(candidate) - generated_terms)
 body = f'''## Automated validation
 
 - Stable release discovered
+- Crates release: https://github.com/vovanbl411/zed-overlay/releases/tag/crates-v{version}
+- Archive preparation: {mode}; publication: {publication}
+- Registry archive, Git sources, upstream snapshot and public download verified
+- Generated license expressions: {'; '.join(metadata['licenses'])}
+- Generated-only licenses for review: {', '.join(generated_only) or 'none'}
+- Candidate-only licenses for review: {', '.join(candidate_only) or 'none'}
 - Manifest generated
 - Portage dependency resolution passed
 - Wayland-only patch applies cleanly

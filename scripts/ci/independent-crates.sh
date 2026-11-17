@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Experimental generation and validation; called only from the read-only check job.
+# Generate or reuse validated crates in the read-only check job.
 set -euo pipefail
 
 version="${1:?candidate version required}"
@@ -16,6 +16,7 @@ checkout="$work/checkout"
 source_dir="$work/source/zed-${version}"
 archive="$work/dist/zed-${version}-overlay-crates.tar.xz"
 source_archive="$work/dist/zed-${version}.tar.gz"
+metadata="$work/dist/zed-${version}-overlay-crates.json"
 start_total=$SECONDS
 summary() { printf '%s\n' "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
 timed() { local label="$1"; shift; local started=$SECONDS; "$@"; summary "$label: $((SECONDS - started))s"; }
@@ -54,15 +55,19 @@ acquire_source() {
   summary "Upstream tag: $tag; commit: $upstream_commit; source archive SHA256: $source_hash; Cargo.lock SHA256: $lock_hash"
 }
 
+prepare_portage() {
+  docker create --name zed-independent-portage "$GENTOO_PORTAGE_IMAGE" /bin/true > /dev/null
+}
+
 prepare_generator() {
   python3 -m venv "$work/venv"
   env -u GITHUB_TOKEN "$work/venv/bin/python" -m pip install 'pycargoebuild==0.16.0'
   test "$("$work/venv/bin/python" -c 'import importlib.metadata; print(importlib.metadata.version("pycargoebuild"))')" = 0.16.0
-  docker create --name zed-independent-portage "$GENTOO_PORTAGE_IMAGE" /bin/true > /dev/null
   docker run --rm --volumes-from zed-independent-portage --entrypoint cat "$GENTOO_STAGE3_IMAGE" /var/db/repos/gentoo/metadata/license-mapping.conf > "$work/license-mapping.conf"
   test -s "$work/license-mapping.conf"
   summary 'Generator: pycargoebuild 0.16.0'
 }
+
 cleanup() { docker rm -f zed-independent-portage >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
@@ -71,36 +76,40 @@ generate() {
   "$overlay/scripts/ci/run-pycargoebuild.sh" "$work/venv/bin/pycargoebuild" \
     "$source_dir" "$archive" "$work/cache" "$work/license-mapping.conf" \
     "$work/generated-zed.ebuild" "$work" 2>&1 | tee "$work/logs/generator.log"
+  summary "pycargoebuild download, repacking and metadata: $((SECONDS - generator_start))s"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/inspect_zed_archive.py" --archive "$archive" --lock "$source_dir/Cargo.lock" | tee -a "$GITHUB_STEP_SUMMARY"
+  grep -F 'Time elapsed during repacking:' "$work/logs/generator.log" | tee -a "$GITHUB_STEP_SUMMARY" || true
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" create \
+    --version "$version" --commit "$upstream_commit" --source "$source_dir" \
+    --source-archive "$source_archive" --lock "$source_dir/Cargo.lock" --archive "$archive" \
+    --generated "$work/generated-zed.ebuild" --cache "$work/cache" --output "$metadata"
+}
+
+reuse() {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_github.py" reuse \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --source "$source_dir" --archive "$archive" --metadata "$metadata" \
+    --cache "$work/cache" --generated "$work/generated-zed.ebuild"
+}
+
+verify_inputs() {
   test "$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)" = "$lock_hash"
   mkdir "$work/source-verify"
   tar -xzf "$source_archive" -C "$work/source-verify"
   diff -qr --no-dereference "$source_dir" "$work/source-verify/zed-${version}"
-  summary "pycargoebuild download, repacking and metadata: $((SECONDS - generator_start))s"
-  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/inspect_zed_archive.py" --archive "$archive" --lock "$source_dir/Cargo.lock" | tee -a "$GITHUB_STEP_SUMMARY"
-  # pycargoebuild reports its own repacking time. The remainder includes downloads and metadata.
-  grep -F 'Time elapsed during repacking:' "$work/logs/generator.log" | tee -a "$GITHUB_STEP_SUMMARY" || true
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" identity \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --lock "$source_dir/Cargo.lock" --archive "$archive" --metadata "$metadata"
   cp -n "$work/cache/"*.gh.tar.gz "$work/dist/"
 }
 
 sync_metadata() {
   PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/sync_zed_git_crates.py" --candidate "$candidate" --generated "$work/generated-zed.ebuild" --source "$source_dir" --cache "$work/cache" | tee -a "$GITHUB_STEP_SUMMARY"
-  python3 - "$candidate" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-s = p.read_text()
-old = 'https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz'
-new = 'https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz'
-if s.count(old) != 1:
-    raise SystemExit('Expected exactly one original crates SRC_URI')
-s = s.replace(old, new)
-if 'gentoo-crate-dist/zed' in s:
-    raise SystemExit('Unexpected reference crates source in candidate')
-p.write_text(s)
-PY
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" rewrite-uri "$candidate"
 }
 
 validate_candidate() {
+  cp "$overlay/app-editors/zed/Manifest" "$work/original-Manifest"
   docker run --rm --volumes-from zed-independent-portage \
     --mount "type=bind,src=$overlay,dst=/overlay" \
     --mount "type=bind,src=$work,dst=/experiment" \
@@ -126,6 +135,7 @@ validate_candidate() {
       echo "Manifest generation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
       PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" --manifest /overlay/app-editors/zed/Manifest
       PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}.tar.gz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py preserve-manifest /experiment/original-Manifest /overlay/app-editors/zed/Manifest
       start=$SECONDS
       emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
       echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
@@ -137,10 +147,23 @@ validate_candidate() {
   cat "$work/logs/timing.txt" >> "$GITHUB_STEP_SUMMARY"
 }
 
-summary '## Independent crates validation (no publication)'
+summary '## Independent crates preparation'
 timed 'Upstream source acquisition' acquire_source
-timed 'Generator environment preparation' prepare_generator
-timed 'pycargoebuild generation and archive inspection' generate
+mode="$(PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_github.py" lookup --version "$version")"
+summary "Result: $mode"
+timed 'Portage environment preparation' prepare_portage
+case "$mode" in
+  generation)
+    timed 'Generator environment preparation' prepare_generator
+    timed 'Archive generation and validation' generate
+    ;;
+  reuse) timed 'Archive download and validation' reuse ;;
+  *) echo "ERROR: invalid archive selection" >&2; exit 1 ;;
+esac
+timed 'Metadata and source integrity validation' verify_inputs
 timed 'GIT_CRATES synchronization' sync_metadata
-validate_candidate
+timed 'Candidate validation' validate_candidate
+mkdir "$RUNNER_TEMP/crates-distribution"
+cp "$archive" "$metadata" "$RUNNER_TEMP/crates-distribution/"
+printf '%s\n' "$mode" > "$work/logs/result.txt"
 summary "Total independent preparation and validation: $((SECONDS - start_total))s"
