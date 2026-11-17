@@ -229,6 +229,100 @@ function initConcurrency(container) {
   controls.hidden = false;
 }
 
+function initSourceCopy(preview) {
+  if (!navigator.clipboard?.writeText) return;
+  const button = preview.querySelector('[data-copy-source]');
+  const status = preview.querySelector('[data-copy-status]');
+  button.addEventListener('click', async () => {
+    const code = Array.from(preview.querySelectorAll('.source-line code'), (line) => line.textContent).join('\n');
+    try {
+      await navigator.clipboard.writeText(code);
+      status.textContent = 'Код скопирован.';
+    } catch {
+      status.textContent = 'Не удалось скопировать код. Выделите его вручную.';
+    }
+  });
+  button.hidden = false;
+}
+
+function initTimeout(form) {
+  const { limit, required } = form.elements;
+  const limitLabel = form.querySelector('[data-timeout-limit]');
+  const requiredLabel = form.querySelector('[data-timeout-required]');
+  const track = form.querySelector('[data-timeout-track]');
+  const result = form.querySelector('[data-timeout-result]');
+
+  function render() {
+    const timeout = limit.valueAsNumber;
+    const duration = required.valueAsNumber;
+    const completed = Math.min(timeout, duration);
+    const remaining = duration - completed;
+    const percent = (minutes) => `${minutes * 100 / Number(required.max)}%`;
+    limitLabel.textContent = `${timeout} мин`;
+    requiredLabel.textContent = `${duration} мин`;
+    track.style.setProperty('--timeout', percent(timeout));
+    track.style.setProperty('--required', percent(duration));
+    track.style.setProperty('--completed', percent(completed));
+    result.dataset.status = remaining ? 'FAIL' : 'PASS';
+    const outcome = remaining
+      ? `Остаётся ${remaining} мин работы. GitHub Actions может остановить задание.`
+      : 'Задание укладывается в лимит.';
+    result.textContent = `Нужно ${duration} мин при лимите ${timeout} мин. Выполнено ${completed} мин из ${duration}. ${outcome}`;
+  }
+
+  form.addEventListener('input', render);
+  form.addEventListener('reset', () => setTimeout(render, 0));
+  render();
+  form.querySelector('[data-timeout-controls]').hidden = false;
+}
+
+function initOutputFlow(figure) {
+  const control = figure.querySelector('[data-handoff-ready]');
+  const write = figure.querySelector('[data-handoff-write]');
+  const values = figure.querySelectorAll('[data-handoff-value]');
+  const decision = figure.querySelector('[data-output-decision]');
+
+  function render() {
+    const ready = control.checked;
+    write.hidden = !ready;
+    values.forEach((value) => { value.textContent = `"${ready}"`; });
+    decision.dataset.status = ready ? 'PASS' : 'SKIP';
+    decision.textContent = ready
+      ? 'Результат true. Требование к handoff выполнено.'
+      : 'Результат false. Проверка handoff пропускается.';
+  }
+
+  control.addEventListener('change', render);
+  render();
+  figure.querySelector('[data-output-controls]').hidden = false;
+}
+
+function initImageReference(figure) {
+  const controls = figure.querySelector('[data-image-controls]');
+  const address = figure.querySelector('[data-image-address]');
+  const published = figure.querySelector('[data-image-published]');
+  const reference = figure.querySelector('[data-image-ref]');
+  const result = figure.querySelector('[data-image-result]');
+  const arrows = figure.querySelectorAll('[data-image-arrow]');
+  const images = figure.querySelectorAll('[data-image-target]');
+
+  function render() {
+    const tag = address.value === 'tag';
+    const tagTarget = published.checked ? 'B' : 'A';
+    const selected = tag ? tagTarget : 'A';
+    reference.textContent = tag ? 'gentoo/stage3:latest' : 'gentoo/stage3@sha256:aaa...';
+    arrows.forEach((arrow) => { arrow.hidden = arrow.dataset.imageArrow !== selected; });
+    images.forEach((image) => { image.classList.toggle('artifact', image.dataset.imageTarget === selected); });
+    const tagState = published.checked ? 'Издатель перевёл тег latest на B.' : 'Тег latest пока указывает на A.';
+    const selection = tag ? `Ссылка по тегу выбирает образ ${selected}.` : 'Закреплённый дайджест выбирает образ A.';
+    result.textContent = `${tagState} ${selection}`;
+  }
+
+  controls.addEventListener('change', render);
+  render();
+  controls.hidden = false;
+}
+
 if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-theme-control]').forEach(initTheme);
   document.querySelectorAll('[data-selector]').forEach(initSelector);
@@ -236,4 +330,8 @@ if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-quiz]').forEach(initQuiz);
   document.querySelectorAll('[data-cron]').forEach(initCron);
   document.querySelectorAll('[data-concurrency]').forEach(initConcurrency);
+  document.querySelectorAll('[data-source-preview]').forEach(initSourceCopy);
+  document.querySelectorAll('[data-timeout]').forEach(initTimeout);
+  document.querySelectorAll('[data-output-flow]').forEach(initOutputFlow);
+  document.querySelectorAll('[data-image-reference]').forEach(initImageReference);
 }
