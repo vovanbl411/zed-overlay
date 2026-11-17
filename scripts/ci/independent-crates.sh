@@ -39,12 +39,19 @@ acquire_source() {
   upstream_commit="$(resolve_tag)"
   env -u GITHUB_TOKEN git clone --quiet --depth=1 --single-branch --no-tags --branch "$tag" "$repo" "$checkout"
   test "$(git -C "$checkout" rev-parse HEAD)" = "$upstream_commit"
+  test "$(grep -Fc 'https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz' "$candidate")" = 1
+  env -u GITHUB_TOKEN curl -fsSL --retry 3 \
+    "https://github.com/zed-industries/zed/archive/refs/tags/${tag}.tar.gz" \
+    -o "$source_archive"
   test "$(resolve_tag)" = "$upstream_commit"
-  git -C "$checkout" archive --format=tar --prefix="zed-${version}/" "$upstream_commit" | gzip -n > "$source_archive"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/verify_zed_source.py" \
+    --archive "$source_archive" --checkout "$checkout" --commit "$upstream_commit" \
+    --root "zed-${version}"
   mkdir "$work/source"
   tar -xzf "$source_archive" -C "$work/source"
   lock_hash="$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)"
-  summary "Upstream tag: $tag; commit: $upstream_commit; Cargo.lock SHA256: $lock_hash"
+  source_hash="$(sha256sum "$source_archive" | cut -d' ' -f1)"
+  summary "Upstream tag: $tag; commit: $upstream_commit; source archive SHA256: $source_hash; Cargo.lock SHA256: $lock_hash"
 }
 
 prepare_generator() {
@@ -100,6 +107,7 @@ validate_candidate() {
     --workdir /overlay \
     --env CANDIDATE_VERSION="$version" \
     --env EXPECTED_ARCHIVE_SHA256="$(sha256sum "$archive" | cut -d' ' -f1)" \
+    --env EXPECTED_SOURCE_SHA256="$source_hash" \
     --env CANDIDATE_EBUILD="/overlay/${candidate#"$overlay"/}" \
     --env CANDIDATE_PATCH="/overlay/${patch#"$overlay"/}" \
     "$GENTOO_STAGE3_IMAGE" /bin/bash -euo pipefail -c '
@@ -110,11 +118,14 @@ validate_candidate() {
       export DISTDIR=/experiment/dist
       test "$(portageq envvar DISTDIR)" = "$DISTDIR"
       printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -
       start=$SECONDS
       ebuild "$CANDIDATE_EBUILD" manifest
       printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -
       echo "Manifest generation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
       PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}.tar.gz" --manifest /overlay/app-editors/zed/Manifest
       start=$SECONDS
       emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
       echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt

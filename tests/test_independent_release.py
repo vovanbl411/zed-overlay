@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import io
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +13,63 @@ ROOT = Path(__file__).parents[1]
 
 
 class IndependentReleaseTests(unittest.TestCase):
+    def test_source_acquisition_uses_src_uri_and_rejects_commit_mismatch(self) -> None:
+        script = (ROOT / 'scripts/ci/independent-crates.sh').read_text()
+        acquisition = script.split('\nprepare_generator() {', 1)[0] + '\nacquire_source\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'bin'
+            binary.mkdir()
+            archive = root / 'download.tar.gz'
+            data = b'lockfile'
+            with tarfile.open(archive, 'w:gz') as tar:
+                entry = tarfile.TarInfo('zed-1.2.3/Cargo.lock')
+                entry.size = len(data)
+                tar.addfile(entry, io.BytesIO(data))
+            blob = hashlib.sha1(b'blob 8\0' + data).hexdigest()
+            git = binary / 'git'
+            git.write_text('''#!/bin/bash
+if [[ "$1" == ls-remote ]]; then printf '%s\\trefs/tags/v1.2.3\\n' "$MOCK_COMMIT"
+elif [[ "$1" == clone ]]; then mkdir "${!#}"
+elif [[ "$3" == rev-parse ]]; then echo "$MOCK_COMMIT"
+elif [[ "$3" == ls-tree ]]; then printf '100644 blob %s\\tCargo.lock\\0' "$MOCK_BLOB"
+else exit 2; fi
+''')
+            git.chmod(0o755)
+            curl = binary / 'curl'
+            curl.write_text('''#!/bin/bash
+url= dest=
+while (($#)); do
+  case "$1" in https://*) url=$1 ;; -o) shift; dest=$1 ;; esac
+  shift
+done
+printf '%s' "$url" > "$MOCK_URL"
+cp "$MOCK_ARCHIVE" "$dest"
+''')
+            curl.chmod(0o755)
+            candidate = root / 'candidate.ebuild'
+            candidate.write_text('https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n')
+            summary = root / 'summary'
+            summary.touch()
+            env = os.environ.copy()
+            env.update(PATH=f'{binary}:' + env['PATH'], MOCK_ARCHIVE=str(archive),
+                       MOCK_URL=str(root / 'url'), MOCK_COMMIT='a' * 40, MOCK_BLOB=blob,
+                       RUNNER_TEMP=str(root), GITHUB_STEP_SUMMARY=str(summary))
+            command = ['bash', '-c', acquisition, 'acquire', '1.2.3', str(candidate),
+                       str(root / 'patch'), str(ROOT)]
+            result = subprocess.run(command, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / 'url').read_text(),
+                             'https://github.com/zed-industries/zed/archive/refs/tags/v1.2.3.tar.gz')
+            self.assertEqual((root / 'zed-independent/dist/zed-1.2.3.tar.gz').read_bytes(), archive.read_bytes())
+            env['MOCK_BLOB'] = '0' * 40
+            second = root / 'second'
+            second.mkdir()
+            env['RUNNER_TEMP'] = str(second)
+            result = subprocess.run(command, env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Git blob differs', result.stderr)
+
     def test_generator_failure_propagates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

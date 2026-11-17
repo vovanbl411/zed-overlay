@@ -54,9 +54,10 @@ Select the branch containing this implementation. If the watcher reports
 `up-to-date`, no candidate is generated. Scheduled runs and manual runs with
 the option disabled retain the normal release path.
 
-The check job resolves the upstream tag to a commit, exports that commit as the
-source archive, and uses the same source for generation and validation. An
-isolated `pycargoebuild 0.16.0` generates
+The check job resolves the upstream tag to a commit, downloads the source
+archive from the ebuild's `SRC_URI`, and verifies its files and modes against
+the commit's Git tree. It uses that archive for generation, validation, and
+the Manifest. An isolated `pycargoebuild 0.16.0` generates
 `zed-<version>-overlay-crates.tar.xz` and a metadata ebuild. The generated
 `GIT_CRATES` entries are parsed without executing the ebuild and checked against
 `Cargo.lock` and the downloaded Git sources before they replace the block in the
@@ -66,10 +67,11 @@ Changes requiring manual reconciliation fail the snapshot check.
 
 Portage validates the candidate using a separate distfile directory, including
 the generated archive and exact source archive. The job verifies the Manifest
-digests and reports timings, counts, and hashes in the step summary. Diagnostic
-logs are retained as a short-lived workflow artifact. This mode always disables
-the release handoff and the publish job; it does not upload a release asset or
-create a branch or PR. No live GitHub Actions run of this path is recorded yet.
+digests for both archives and reports timings, counts, and hashes in the step
+summary. Diagnostic logs are retained as a short-lived workflow artifact. This
+mode always disables the release handoff and the publish job; it does not upload
+a release asset or create a branch or PR. No live GitHub Actions run of this
+path is recorded yet.
 
 Later stages are intended to publish archives to this repository's GitHub
 Releases under `crates-v<version>` and to add persistent archive reuse. Neither
