@@ -46,6 +46,36 @@ cleanliness checks still run.
 Container checks run only on amd64. The arm64 build and runtime have not been
 tested.
 
+### Independent crates validation (Stage 1)
+
+On a manual `workflow_dispatch`, set `independent_validation` to `true` to
+exercise independent archive generation for a newly discovered stable release.
+Select the branch containing this implementation. If the watcher reports
+`up-to-date`, no candidate is generated. Scheduled runs and manual runs with
+the option disabled retain the normal release path.
+
+The check job resolves the upstream tag to a commit, exports that commit as the
+source archive, and uses the same source for generation and validation. An
+isolated `pycargoebuild 0.16.0` generates
+`zed-<version>-overlay-crates.tar.xz` and a metadata ebuild. The generated
+`GIT_CRATES` entries are parsed without executing the ebuild and checked against
+`Cargo.lock` and the downloaded Git sources before they replace the block in the
+disposable candidate. License differences are reported for review; existing
+offline substitutions, system dependencies, and the Wayland policy remain curated.
+Changes requiring manual reconciliation fail the snapshot check.
+
+Portage validates the candidate using a separate distfile directory, including
+the generated archive and exact source archive. The job verifies the Manifest
+digests and reports timings, counts, and hashes in the step summary. Diagnostic
+logs are retained as a short-lived workflow artifact. This mode always disables
+the release handoff and the publish job; it does not upload a release asset or
+create a branch or PR. No live GitHub Actions run of this path is recorded yet.
+
+Later stages are intended to publish archives to this repository's GitHub
+Releases under `crates-v<version>` and to add persistent archive reuse. Neither
+publication nor persistent caching is implemented in Stage 1. The existing
+manual Gentoo build, runtime acceptance, and merge decisions remain required.
+
 Only a new release produces a sanitized handoff artifact. A separate read-only
 job checks its exact file layout and confirms that its base commit matches the
 workflow commit. The publish job runs only for `main`, after that validation

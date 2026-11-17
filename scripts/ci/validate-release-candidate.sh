@@ -162,6 +162,13 @@ create_release_handoff() {
 }
 
 main() {
+  local validation_mode="${INDEPENDENT_VALIDATION:-false}"
+  local total_started=$SECONDS
+  case "$validation_mode" in
+    false) ;;
+    true) test "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ;;
+    *) echo "ERROR: invalid independent validation mode" >&2; exit 1 ;;
+  esac
   local tracked_paths="$RUNNER_TEMP/zed-overlay-tracked-paths"
   local disposable_workspace="$RUNNER_TEMP/zed-overlay"
   local before_paths="$RUNNER_TEMP/zed-overlay-before-paths"
@@ -187,7 +194,13 @@ main() {
 
   if grep -Fxq 'Result: new-release' "$prepare_log"; then
     validate_candidate_paths "$before_paths"
-    validate_candidate_in_container "$disposable_workspace"
+    if [ "$validation_mode" = true ]; then
+      "$disposable_workspace/scripts/ci/independent-crates.sh" \
+        "$candidate_version" "$disposable_workspace/$candidate_ebuild" \
+        "$disposable_workspace/$candidate_patch" "$disposable_workspace"
+    else
+      validate_candidate_in_container "$disposable_workspace"
+    fi
     validate_manifest_update "$manifest_checksum"
   else
     grep -Fxq 'Result: up-to-date' "$prepare_log"
@@ -200,7 +213,10 @@ main() {
   validate_disposable_policy "$disposable_workspace" "$tracked_paths"
   assert_source_workspace_clean
 
-  if grep -Fxq 'Result: new-release' "$prepare_log"; then
+  if [ "$validation_mode" = true ]; then
+    echo "Total candidate preparation and validation: $((SECONDS - total_started))s" | tee -a "$GITHUB_STEP_SUMMARY"
+    echo "Validation-only: release handoff disabled"
+  elif grep -Fxq 'Result: new-release' "$prepare_log"; then
     create_release_handoff
   fi
 }
