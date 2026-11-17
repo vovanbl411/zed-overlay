@@ -279,9 +279,7 @@ src_prepare() {
 
     local CRASH_CONTEXT_COMMIT
     git_crate_commit crash-context CRASH_CONTEXT_COMMIT
-    
     local CRASH_CONTEXT_GIT="crash-context = { git = \"https://github.com/rust-minidump/minidump-writer\", rev = \"${CRASH_CONTEXT_COMMIT}\""
-    
     local CRASH_CONTEXT_PATH="crash-context = { path = \"${WORKDIR}/minidump-writer-${CRASH_CONTEXT_COMMIT}/crates/crash-context\""
 
 	local cargo_toml="${S}/Cargo.toml"
