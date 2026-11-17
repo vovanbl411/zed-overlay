@@ -7,6 +7,12 @@ on:
     # в начале часа.
     - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      independent_validation:
+        description: Validate independent crates generation without publishing
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -19,7 +25,9 @@ jobs:
   check:
     name: Check stable Zed release
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 90
+    permissions:
+      contents: read
     outputs:
       handoff_ready: ${{ steps.prepare-and-validate.outputs.handoff_ready }}
     env:
@@ -41,12 +49,22 @@ jobs:
         id: prepare-and-validate
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
         run: scripts/ci/validate-release-candidate.sh
+
+      - name: Preserve independent validation logs
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.independent_validation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: independent-validation-logs
+          path: ${{ runner.temp }}/zed-independent/logs/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Между jobs передаём только handoff с ограниченным списком файлов;
       # временный workspace и остальные результаты проверки остаются внутри job.
       - name: Upload release handoff
-        if: steps.prepare-and-validate.outputs.handoff_ready == 'true'
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-handoff
@@ -59,7 +77,7 @@ jobs:
   validate-release-handoff:
     name: Validate release handoff
     needs: check
-    if: needs.check.outputs.handoff_ready == 'true'
+    if: needs.check.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -92,6 +110,7 @@ jobs:
     needs: [check, validate-release-handoff]
     if: >-
       needs.check.outputs.handoff_ready == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.independent_validation) &&
       needs['validate-release-handoff'].result == 'success' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
