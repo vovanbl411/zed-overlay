@@ -372,6 +372,13 @@ function initSelectLab(figure, render) {
   controls.hidden = false;
 }
 
+function initToggleLab(figure, render) {
+  const controls = figure.querySelector('[data-lab-controls]');
+  controls.addEventListener('input', render);
+  render();
+  controls.hidden = false;
+}
+
 function initCredentials(figure) {
   const lane = figure.querySelector('[data-auth-lane]');
   const state = figure.querySelector('[data-auth-state]');
@@ -389,6 +396,121 @@ function initCredentials(figure) {
 function setLessonStatus(label, status) {
   label.dataset.status = status;
   label.textContent = status;
+}
+
+function initDiagnosticFlow(figure) {
+  const preparation = figure.querySelector('[data-preparation]');
+  const logCondition = figure.querySelector('[data-log-condition]');
+  const labels = figure.querySelectorAll('.lesson-status');
+  const result = figure.querySelector('[data-lab-result]');
+
+  initToggleLab(figure, () => {
+    const passed = preparation.value === 'pass';
+    const always = logCondition.value === 'always';
+    const statuses = [
+      passed ? 'PASS' : 'FAIL',
+      passed ? 'PASS' : always ? 'RUN' : 'SKIP',
+      passed ? 'RUN' : 'SKIP',
+      passed ? 'RUN' : 'SKIP',
+      'RUN'
+    ];
+    labels.forEach((label, index) => {
+      const status = statuses[index];
+      setLessonStatus(label, status);
+      label.parentElement.dataset.gateState = status;
+    });
+    result.textContent = passed
+      ? 'Кандидат и сохранение логов прошли. Если загрузка handoff завершится успешно, попытка загрузки crates bundle тоже допущена. Отчёт допущен в любом случае.'
+      : always
+        ? 'Обе загрузки для публикации пропущены. Сохранение логов и отчёт допущены благодаря always().'
+        : 'Обе загрузки для публикации и сохранение логов пропущены. Отчёт допущен благодаря собственному always().';
+  });
+}
+
+function initUploadGates(figure) {
+  const priorSuccess = figure.querySelector('[data-prior-success]');
+  const handoff = figure.querySelector('[data-handoff-true]');
+  const validationOnly = figure.querySelector('[data-validation-only]');
+  const checks = figure.querySelectorAll('[data-upload-check]');
+  const readiness = figure.querySelector('[data-upload-expr="ready"]');
+  const guard = figure.querySelector('[data-upload-expr="guard"]');
+  const result = figure.querySelector('[data-lab-result]');
+
+  initToggleLab(figure, () => {
+    const conditions = [priorSuccess.checked, handoff.checked, !validationOnly.checked];
+    const firstFailure = conditions.indexOf(false);
+    checks.forEach((label, index) => {
+      label.dataset.status = conditions[index] ? 'PASS' : 'FAIL';
+      label.textContent = String(conditions[index]);
+      label.parentElement.dataset.gateState = firstFailure !== -1 && index > firstFailure
+        ? 'SKIP' : label.dataset.status;
+    });
+    readiness.dataset.eval = conditions[0] ? 'read' : 'skip';
+    guard.dataset.eval = conditions[0] && conditions[1] ? 'read' : 'skip';
+    const failedConditions = ['неявный success() ложен', 'handoff ещё не готов', 'включён режим только проверки'];
+    result.textContent = firstFailure === -1
+      ? 'Все три условия истинны. Шаг допущен к попытке загрузки.'
+      : `Загрузка пропущена. Первое закрытое условие — ${failedConditions[firstFailure]}.`;
+  });
+}
+
+function initMissingArtifact(figure) {
+  const scenarios = {
+    logs: ['Диагностические логи', 'ignore', 'PASS', 'Шаг завершился без ошибки и без артефакта. Обычные шаги могут продолжиться при выполнении их условий.'],
+    handoff: ['Release handoff', 'error', 'FAIL', 'Шаг завершился ошибкой. Загрузка crates bundle и зависимые jobs пропускаются. Отчёт о времени остаётся допущен.'],
+    distribution: ['Crates distribution', 'error', 'FAIL', 'Шаг завершился ошибкой. Уже загруженный handoff может остаться, но зависимые jobs пропускаются. Отчёт о времени остаётся допущен.']
+  };
+  const name = figure.querySelector('[data-missing-name]');
+  const policy = figure.querySelector('[data-missing-policy]');
+  const label = figure.querySelector('.lesson-status');
+  const result = figure.querySelector('[data-lab-result]');
+
+  initSelectLab(figure, (value) => {
+    const [artifact, missingPolicy, status, message] = scenarios[value];
+    name.textContent = artifact;
+    policy.textContent = `if-no-files-found: ${missingPolicy}`;
+    setLessonStatus(label, status);
+    label.parentElement.dataset.gateState = status;
+    result.textContent = message;
+  });
+}
+
+function initSummaryLab(figure) {
+  const timestamp = figure.querySelector('[data-valid-timestamp]');
+  const handoff = figure.querySelector('[data-handoff-true]');
+  const seconds = figure.querySelector('[data-example-seconds]');
+  const [formatCheck, handoffCheck] = figure.querySelectorAll('[data-summary-check]');
+  const result = figure.querySelector('[data-summary-result]');
+
+  initToggleLab(figure, () => {
+    const valid = timestamp.checked;
+    const includeTotal = !handoff.checked;
+    formatCheck.dataset.status = valid ? 'PASS' : 'FAIL';
+    formatCheck.textContent = String(valid);
+    formatCheck.parentElement.dataset.gateState = formatCheck.dataset.status;
+    handoffCheck.dataset.status = valid ? (includeTotal ? 'PASS' : 'FAIL') : 'SKIP';
+    handoffCheck.textContent = valid ? String(includeTotal) : 'SKIP';
+    handoffCheck.parentElement.dataset.gateState = handoffCheck.dataset.status;
+    handoffCheck.previousElementSibling.dataset.eval = valid ? 'read' : 'skip';
+
+    if (!valid || !seconds.validity.valid) {
+      result.textContent = valid ? 'Укажите целое число секунд от 0.' : 'Блок не дописывает строки.';
+      return;
+    }
+    if (seconds.value === '') {
+      result.textContent = 'Укажите пример времени.';
+      return;
+    }
+    const elapsed = seconds.valueAsNumber;
+    const checkLine = document.createElement('code');
+    checkLine.textContent = `Check processing: ${elapsed}s`;
+    result.replaceChildren(checkLine);
+    if (includeTotal) {
+      const totalLine = document.createElement('code');
+      totalLine.textContent = `Total workflow processing: ${elapsed}s`;
+      result.append(totalLine);
+    }
+  });
 }
 
 function initPolicyLab(figure) {
@@ -506,4 +628,8 @@ if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-policy-lab]').forEach(initPolicyLab);
   document.querySelectorAll('[data-gates]').forEach(initGates);
   document.querySelectorAll('[data-expression]').forEach(initExpression);
+  document.querySelectorAll('[data-diagnostic-flow]').forEach(initDiagnosticFlow);
+  document.querySelectorAll('[data-upload-gates]').forEach(initUploadGates);
+  document.querySelectorAll('[data-missing-artifact]').forEach(initMissingArtifact);
+  document.querySelectorAll('[data-summary-lab]').forEach(initSummaryLab);
 }

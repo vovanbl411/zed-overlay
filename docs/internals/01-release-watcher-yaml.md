@@ -1,7 +1,7 @@
 ---
 layout: handbook
 title: Release watcher — разбор YAML
-description: "Как первые 60 строк workflow задают условия запуска, настройки и первые шаги задания Check stable Zed release."
+description: "Как workflow задаёт условия запуска и выполняет Job 1: от первых проверок до передачи артефактов и отчёта."
 chapter: 1
 eyebrow: Глава 01 / Продолжение
 permalink: /internals/01-release-watcher/yaml/
@@ -12,6 +12,7 @@ sections:
   - { id: concurrency, label: "2.4. Параллельные запуски" }
   - { id: job-check, label: "2.5. Job 1 — начало выполнения workflow" }
   - { id: job-steps, label: "2.6. Job 1 — первые шаги выполнения" }
+  - { id: job-results, label: "2.7. Job 1 — результаты и отчёт" }
 ---
 
 {% assign reviewed_revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -1668,3 +1669,381 @@ version = "0001f00-7"
   fi{% endcapture %}
 
 {% include source-preview.html source=candidate_finish label="Проверки и условие handoff, строки 157–169" path=candidate_path revision=source_revision start=157 comment="#" %}
+
+## 2.7. Job 1 — сохраняем результаты и формируем отчёт {#job-results}
+
+### 2.7.1. Почему некоторые шаги выполняются даже после ошибки? {#diagnostic-steps}
+
+GitHub Actions проверяет `if` перед запуском шага. К обычному условию без
+функции проверки статуса GitHub добавляет `success()`. Поэтому после ошибки
+обычные шаги загрузки пропускаются, даже если их собственное выражение истинно.
+
+У шагов `Preserve crates validation logs` и `Report check processing time`
+стоит явное `if: always()`. Оно снимает требование успешности предыдущих шагов.
+Если runner продолжает выполнять job, можно попытаться сохранить логи и
+записать время после ошибки. Потеря runner, жёсткий тайм-аут или принудительное
+завершение могут прервать выполнение. [Функции проверки статуса в GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions).
+
+<figure class="figure lesson-figure" data-diagnostic-flow aria-labelledby="diagnostic-flow-title">
+  <h4 id="diagnostic-flow-title">Какие шаги останутся доступны после ошибки?</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Подготовка кандидата
+      <select data-preparation>
+        <option value="pass">Успешна</option>
+        <option value="fail">Завершилась ошибкой</option>
+      </select>
+    </label>
+    <label>Условие сохранения логов
+      <select data-log-condition>
+        <option value="always">always() · как в workflow</option>
+        <option value="success">Обычное условие success()</option>
+      </select>
+    </label>
+  </div>
+  <ol class="lesson-flow gate-flow diagnostic-flow" role="list">
+    <li class="flow-node" data-gate-state="PASS"><strong>Prepare candidate</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="PASS"><strong>Preserve validation logs</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="RUN"><strong>Upload handoff</strong><span class="lesson-status" data-status="RUN">RUN</span></li>
+    <li class="flow-node" data-gate-state="RUN"><strong>Upload crates distribution</strong><span class="lesson-status" data-status="RUN">RUN</span></li>
+    <li class="flow-node" data-gate-state="RUN"><strong>Report processing time</strong><span class="lesson-status" data-status="RUN">RUN</span></li>
+  </ol>
+  <p class="model-result" data-lab-result role="status">Кандидат и сохранение логов прошли. При успешной загрузке handoff обе загрузки допущены по очереди. Отчёт допущен независимо от их результата.</p>
+  <figcaption>PASS — шаг успешно завершился в модели, FAIL — завершился ошибкой, RUN — условие допуска выполнено, SKIP — шаг пропущен. Успешная подготовка здесь означает production-запуск для новой версии с готовым handoff. Сохранение логов в этом сценарии считаем успешным.</figcaption>
+  <noscript><p>При ошибке подготовки обе загрузки для публикации получают SKIP. Логи получают RUN с <code>always()</code> и SKIP с обычным условием. Отчёт в обоих случаях получает RUN.</p></noscript>
+</figure>
+
+### 2.7.2. Сохраняем диагностические логи. {#diagnostic-artifact}
+
+{% capture diagnostic_upload %}{% raw %}      - name: Preserve crates validation logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: independent-validation-logs
+          path: ${{ runner.temp }}/zed-independent/logs/
+          if-no-files-found: ignore
+          retention-days: 7{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=diagnostic_upload label="Строки 62–69" path=workflow_path revision=reviewed_revision start=62 comment="#" open=true %}
+
+- `name` в строке 62 задаёт подпись шага в интерфейсе. `if: always()` в строке 63 позволяет собрать диагностику после ошибки.
+- `uses` выбирает официальное действие `actions/upload-artifact`. Полный SHA после `@` закрепляет конкретный коммит действия. Ключ `with` передаёт ему параметры. [Документация actions/upload-artifact](https://github.com/actions/upload-artifact).
+- `with.name` задаёт имя сохранённого артефакта `independent-validation-logs`. `path` указывает на каталог исходных файлов. Выражение `{% raw %}${{ runner.temp }}{% endraw %}` читает путь к временной папке runner из контекста Actions. В Bash к той же папке обращаются через предоставленную runner переменную `$RUNNER_TEMP`. [Контекст runner](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#runner-context) · [Переменные GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables).
+- `if-no-files-found: ignore` позволяет завершить шаг без артефакта, когда по пути нет ни одного подходящего файла. При `up-to-date` или ранней ошибке подготовки каталог логов может ещё не существовать. Сетевые ошибки и другие сбои загрузки по-прежнему могут провалить шаг.
+- `retention-days: 7` задаёт хранение загруженных логов на семь дней.
+
+В GitHub откройте **Actions**, выберите запуск watcher и на странице **Summary**
+найдите блок **Artifacts**. Нажмите на имя артефакта, чтобы скачать его, пока
+он доступен. Для скачивания войдите в GitHub под учётной записью с доступом
+на чтение репозитория. [Проверочный запуск 44129394269](https://github.com/vovanbl411/zed-overlay/actions/runs/44129394269) · [Скачивание артефактов в GitHub](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+
+### 2.7.3. Передаём проверенные файлы между jobs. {#publication-artifacts}
+
+Временная копия overlay служит рабочей площадкой для проверок. Для передачи
+в другие jobs скрипт собирает два отдельных набора с проверяемым составом.
+В `release-handoff` лежат ровно четыре файла пакета и его описания. В
+`crates-distribution` лежат архив crates и JSON с метаданными архива. Остальные
+рабочие файлы остаются в Job 1. Диагностические логи загружаются отдельно для
+разбора запуска.
+
+{% capture handoff_upload %}{% raw %}      # Между jobs передаём только handoff с ограниченным списком файлов;
+      # временный workspace и остальные результаты проверки остаются внутри job.
+      - name: Upload release handoff
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+          if-no-files-found: error
+          retention-days: 14{% endraw %}{% endcapture %}
+
+{% capture distribution_upload %}{% raw %}      - name: Upload crates distribution bundle
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+          if-no-files-found: error
+          retention-days: 14{% endraw %}{% endcapture %}
+
+<div class="selector figure artifact-explorer" data-selector data-label="Артефакты первого job" markdown="1">
+
+<div class="selection-panel" data-panel data-label="independent-validation-logs" id="artifact-diagnostics" markdown="1">
+
+#### `independent-validation-logs`
+
+<div class="artifact-tree workspace artifact-optional">
+  <strong>Диагностика запуска</strong>
+  <code>$RUNNER_TEMP/zed-independent/logs/</code>
+  <ul role="list">
+    <li><code>generator.log</code> <small>при генерации</small></li>
+    <li><code>portage.log</code></li>
+    <li><code>timing.txt</code></li>
+    <li><code>result.txt</code> <small>после успешной проверки</small></li>
+  </ul>
+</div>
+
+Состав зависит от пройденных этапов. Файлы читает человек, который разбирает
+запуск. Срок хранения **7 дней**, при отсутствии файлов действует `ignore`.
+[Запись логов в скрипте](https://github.com/vovanbl411/zed-overlay/blob/{{ source_revision }}/scripts/ci/independent-crates.sh#L78-L168).
+
+{% include source-preview.html source=diagnostic_upload label="Загрузка логов · строки 62–69" path=workflow_path revision=reviewed_revision start=62 comment="#" open=true %}
+
+</div>
+
+<div class="selection-panel" data-panel data-label="release-handoff" id="artifact-handoff" markdown="1">
+
+#### `release-handoff`
+
+<div class="artifact-tree workspace artifact-required">
+  <strong>Файлы кандидата для публикации</strong>
+  <code>$RUNNER_TEMP/release-handoff/</code>
+  <ul role="list">
+    <li><code>release.json</code></li>
+    <li><code>app-editors/zed/</code>
+      <ul role="list">
+        <li><code>Manifest</code></li>
+        <li><code>zed-{version}.ebuild</code></li>
+        <li><code>files/zed-{version}-wayland-only.patch</code></li>
+      </ul>
+    </li>
+  </ul>
+</div>
+
+Job 2 сверяет набор с исходным коммитом, Job 3 применяет файлы кандидата.
+Срок хранения **14 дней**, при отсутствии файлов действует `error`.
+
+{% include source-preview.html source=handoff_upload label="Загрузка handoff · строки 71–80" path=workflow_path revision=reviewed_revision start=71 comment="#" open=true %}
+
+</div>
+
+<div class="selection-panel" data-panel data-label="crates-distribution" id="artifact-distribution" markdown="1">
+
+#### `crates-distribution`
+
+<div class="artifact-tree workspace artifact-required">
+  <strong>Архив crates и его метаданные</strong>
+  <code>$RUNNER_TEMP/crates-distribution/</code>
+  <ul role="list">
+    <li><code>zed-{version}-overlay-crates.tar.xz</code></li>
+    <li><code>zed-{version}-overlay-crates.json</code></li>
+  </ul>
+</div>
+
+Job 2 проверяет согласованность архива и метаданных с handoff, Job 3
+использует набор при публикации или повторном использовании архива.
+Срок хранения **14 дней**, при отсутствии файлов действует `error`.
+
+{% include source-preview.html source=distribution_upload label="Загрузка crates bundle · строки 82–89" path=workflow_path revision=reviewed_revision start=82 comment="#" open=true %}
+
+</div>
+
+</div>
+
+Job 2 и Job 3 скачивают каждый из двух артефактов напрямую из хранилища
+текущего запуска Actions. Для Job 3 успешная проверка Job 2 служит условием
+запуска. Источник файлов у обоих один. [Скачивание в Job 2](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L121-L131) · [Скачивание в Job 3](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L170-L180).
+
+<figure class="figure lesson-figure artifact-retention">
+  <figcaption>Срок хранения артефактов Actions со дня загрузки</figcaption>
+  <div><label for="retention-logs">Диагностические логи · 7 дней</label><meter id="retention-logs" min="0" max="14" value="7">7 из 14</meter></div>
+  <div><label for="retention-publication">Handoff и crates bundle · 14 дней</label><meter id="retention-publication" min="0" max="14" value="14">14 из 14</meter></div>
+</figure>
+
+GitHub Release assets прикреплены к релизу, откуда Portage может скачать
+опубликованный архив. Сроки хранения артефактов Actions на assets не
+распространяются. Доступность assets зависит от самого релиза и его файлов.
+[Релиз с архивом crates для Zed 1.28.1](https://github.com/vovanbl411/zed-overlay/releases/tag/crates-v1.28.1).
+
+### 2.7.4. Условия допуска к загрузке artifacts. {#artifact-upload-gates}
+
+{% capture publication_uploads %}{{ handoff_upload }}
+
+{{ distribution_upload }}{% endcapture %}
+
+{% include source-preview.html source=publication_uploads label="Оба шага загрузки · строки 71–89" path=workflow_path revision=reviewed_revision start=71 comment="#" %}
+
+Оба шага используют одну строку `if`. Контекст `steps` даёт доступ к шагам
+текущего job по их `id`. В [разборе outputs](#job-check) значение
+`handoff_ready` пришло из `prepare-and-validate` как строка. Выражение
+сравнивает её с литералом `'true'`. Пустой output сравнение не проходит.
+
+Как и в [предыдущей лаборатории выражений](#validation-expression), `&&`
+требует истинности обоих операндов. Скобки группируют проверку ручного запуска
+`workflow_dispatch` с включённым `inputs.independent_validation`.
+`!` меняет результат всей группы на противоположный, поэтому режим «только
+проверка» закрывает загрузку. GitHub также проверяет неявное `success()`.
+Перед второй загрузкой оно учитывает результат первой.
+
+<figure class="figure lesson-figure expression-lab" data-upload-gates aria-labelledby="upload-gates-title">
+  <h4 id="upload-gates-title">Допущена ли загрузка?</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label><input type="checkbox" data-prior-success checked> Предыдущие шаги успешны</label>
+    <label><input type="checkbox" data-handoff-true checked> <code>handoff_ready</code> равно <code>"true"</code></label>
+    <label><input type="checkbox" data-validation-only> Ручной запуск только для проверки</label>
+  </div>
+  <code class="expression-code">if: <span data-upload-expr="ready" data-eval="read">steps.prepare-and-validate.outputs.handoff_ready == 'true'</span> &amp;&amp; <span data-upload-expr="guard" data-eval="read">!(github.event_name == 'workflow_dispatch' &amp;&amp; inputs.independent_validation)</span></code>
+  <ol class="lesson-flow gate-flow three-stage-flow" role="list">
+    <li class="flow-node"><strong>Неявный <code>success()</code></strong><span class="lesson-status" data-status="PASS" data-upload-check>true</span></li>
+    <li class="flow-node"><strong>Сравнение output</strong><span class="lesson-status" data-status="PASS" data-upload-check>true</span></li>
+    <li class="flow-node"><strong>Запрет validation-only</strong><span class="lesson-status" data-status="PASS" data-upload-check>true</span></li>
+  </ol>
+  <p class="model-result" role="status" data-lab-result>Все три условия истинны. Шаг допущен к попытке загрузки.</p>
+  <figcaption>Значения показаны для каждого условия. GitHub может не вычислять оставшуюся часть выражения после первого ложного условия.</figcaption>
+</figure>
+
+#### Что произойдёт, если файлов нет?
+
+`if-no-files-found` применяется внутри уже запущенного шага. Проверка
+устанавливает, нашёлся ли хотя бы один файл. Полный состав, структуру и
+целостность двух наборов отдельно проверяют `release_handoff.py` и
+`crates_distribution.py`.
+
+<figure class="figure lesson-figure" data-missing-artifact aria-labelledby="missing-artifact-title">
+  <h5 id="missing-artifact-title">Загрузка допущена, но каталог пуст</h5>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label>Какой набор отсутствует?
+      <select>
+        <option value="logs">Диагностические логи</option>
+        <option value="handoff">Release handoff</option>
+        <option value="distribution">Crates distribution</option>
+      </select>
+    </label>
+  </div>
+  <ol class="lesson-flow gate-flow three-stage-flow" role="list">
+    <li class="flow-node"><strong data-missing-name>Диагностические логи</strong><small>Подходящих файлов нет</small></li>
+    <li class="flow-node"><strong>Политика действия</strong><code data-missing-policy>if-no-files-found: ignore</code></li>
+    <li class="flow-node" data-gate-state="PASS"><strong>Результат шага</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+  </ol>
+  <p class="model-result" role="status" data-lab-result>Шаг завершился без ошибки и без артефакта. Обычные шаги могут продолжиться при выполнении их условий.</p>
+  <noscript><p>Для обоих наборов публикации действует <code>error</code>. Если отсутствует handoff, пропускается и следующая загрузка. Если отсутствует crates bundle, уже загруженный handoff может остаться, но Job 1 завершается ошибкой и зависимые jobs не запускаются. Отчёт о времени по-прежнему допущен.</p></noscript>
+</figure>
+
+### 2.7.5. Разбираем отчёт о времени выполнения. {#check-time-report}
+
+У этого шага собственный `if: always()`. Через `env` GitHub передаёт в
+окружение шага два значения. `CHECK_STARTED_AT` берёт отметку `started_at`
+из `run-clock`, а `HANDOFF_READY` берёт output из шага подготовки. В
+`run: |` знак `|` открывает литеральный многострочный блок YAML: переводы
+строк сохраняются, и runner передаёт блок как скрипт Bash.
+
+{% capture timing_report %}{% raw %}      - name: Report check processing time
+        if: always()
+        env:
+          CHECK_STARTED_AT: ${{ steps.run-clock.outputs.started_at }}
+          HANDOFF_READY: ${{ steps.prepare-and-validate.outputs.handoff_ready }}
+        run: |
+          if [[ "$CHECK_STARTED_AT" =~ ^[0-9]+$ ]]; then
+            elapsed=$(( $(date +%s) - CHECK_STARTED_AT ))
+            echo "Check processing: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$HANDOFF_READY" != true ]]; then
+              echo "Total workflow processing: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi{% endraw %}{% endcapture %}
+
+{% capture report_explanations %}
+<div class="selection-panel" data-panel data-lines="91-92" data-label="Шаг отчёта" id="report-always" markdown="1">
+`always()` допускает шаг после ошибки, пока runner продолжает выполнение.
+</div>
+<div class="selection-panel" data-panel data-lines="93-96" data-label="Входные данные Bash" id="report-env" markdown="1">
+`env` связывает outputs предыдущих шагов с переменными окружения. После `run: |` начинается многострочный скрипт.
+</div>
+<div class="selection-panel" data-panel data-lines="97" data-label="Проверка формата отметки" id="report-timestamp" markdown="1">
+`if` проверяет условие, `then` открывает ветку при истинном результате, `fi` закрывает её. Внутри `[[ ... ]]` оператор `=~` сравнивает значение с регулярным выражением. `^` привязывает проверку к началу значения, `[0-9]` означает десятичную цифру, `+` требует одну или больше цифр, `$` привязывает проверку к концу. Пустое или явно нечисловое значение минует вычисление. Формат сам по себе ничего не говорит о корректности отметки по времени.
+</div>
+<div class="selection-panel" data-panel data-lines="98" data-label="Вычисление разницы" id="report-arithmetic" markdown="1">
+`$(date +%s)` запускает команду и подставляет текущую отметку в секундах Unix. `$(( ... ))` вычисляет разницу, а `elapsed=` сохраняет её в переменной. Это показания системных часов, которые могут корректироваться.
+</div>
+<div class="selection-panel" data-panel data-lines="99" data-label="Первая строка отчёта" id="report-check-line" markdown="1">
+`${elapsed}` подставляет значение переменной, после которого добавляется `s`. Перенаправление `>> "$GITHUB_STEP_SUMMARY"` дописывает строку в файл отчёта шага, сохраняя прежнее содержимое.
+</div>
+<div class="selection-panel" data-panel data-lines="100-102" data-label="Условие второй строки" id="report-total-line" markdown="1">
+`!= true` даёт истину, если значение отличается от строки `true` в Bash. При `false` или пустом значении скрипт дописывает ещё одну строку с тем же числом секунд. Первый `fi` закрывает внутреннее условие.
+</div>
+<div class="selection-panel" data-panel data-lines="103" data-label="Конец проверки формата" id="report-end" markdown="1">
+Последний `fi` закрывает внешнее условие. Обе строки находятся внутри этой проверки.
+</div>
+{% endcapture %}
+
+{% include source-preview.html source=timing_report panels=report_explanations label="Строки 91–103 · выберите строку для разбора" path=workflow_path revision=reviewed_revision start=91 comment="#" open=true %}
+
+#### Куда попадает текст?
+
+<figure class="figure lesson-figure">
+  <ol class="lesson-flow three-stage-flow" role="list">
+    <li class="flow-node"><strong>Команда Bash</strong><small><code>echo</code> формирует строку</small></li>
+    <li class="flow-node"><strong>Файл отчёта шага</strong><small><code>$GITHUB_STEP_SUMMARY</code> содержит путь</small></li>
+    <li class="flow-node"><strong>Summary запуска</strong><small>GitHub показывает отчёт job</small></li>
+  </ol>
+</figure>
+
+Файл `GITHUB_STEP_SUMMARY` принимает Markdown. GitHub объединяет отчёты
+шагов в сводку job на странице запуска. Через `GITHUB_OUTPUT` шаг передаёт
+именованные значения для выражений workflow. Артефакты хранят скачиваемые
+файлы, а обычный вывод команды виден в логах шага. Через `tee -a` проект
+показывает одну строку и в логах, и в сводке. Так скрипт пишет
+`Metadata SHA256: …` при подготовке handoff. Отдельный пример из проекта —
+`Result: up-to-date` в сводке, когда новый кандидат не нужен.
+[Сводка в GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#adding-a-job-summary) · [Исторический запуск с повторным использованием архива](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330).
+
+<figure class="figure lesson-figure expression-lab" data-summary-lab aria-labelledby="summary-lab-title">
+  <h4 id="summary-lab-title">Что появится в Summary?</h4>
+  <div class="walkthrough-controls" hidden data-lab-controls>
+    <label><input type="checkbox" data-valid-timestamp checked> Числовой формат <code>CHECK_STARTED_AT</code></label>
+    <label><input type="checkbox" data-handoff-true checked> <code>HANDOFF_READY</code> равно <code>"true"</code></label>
+    <label>Пример времени, с <input type="number" min="0" step="1" value="133" data-example-seconds></label>
+  </div>
+  <ol class="lesson-flow gate-flow two-stage-flow" role="list">
+    <li class="flow-node"><code data-eval="read">[[ "$CHECK_STARTED_AT" =~ ^[0-9]+$ ]]</code><span class="lesson-status" data-summary-check data-status="PASS">true</span></li>
+    <li class="flow-node"><code data-eval="read">[[ "$HANDOFF_READY" != true ]]</code><span class="lesson-status" data-summary-check data-status="FAIL">false</span></li>
+  </ol>
+  <div class="lab-terminal summary-preview" role="status" aria-atomic="true" data-summary-result><code>Check processing: 133s</code></div>
+  <figcaption>133 секунды — условное число. При корректной отметке и неготовом handoff появится ещё строка <code>Total workflow processing: 133s</code>. При пустой или нечисловой отметке блок ничего не допишет.</figcaption>
+</figure>
+
+Отсчёт начинается в `run-clock`, когда runner уже выделен. Время показывает
+продолжительность обработки. О результате запуска судят по статусам jobs и
+шагов. Пустой или ложный `handoff_ready` встречается на разных путях, в том
+числе при `up-to-date`, проверочном запуске и ошибке подготовки.
+
+Если `handoff_ready` равен `true`, Job 1 пишет только время проверки.
+Итоговую строку тогда дописывает шаг Job 3, если job запустился и шаг отчёта выполнился с числовой отметкой. Поздний расчёт от того же
+`started_at` включает и прошедшее между jobs время. При сбое загрузки либо
+пропуске публикации итоговая строка может отсутствовать. [Итоговый шаг отчёта в workflow](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L233-L240).
+
+### 2.7.6. Как связаны результаты первого job. {#job-check-data-flow}
+
+<figure class="figure lesson-figure job-results-flow" aria-labelledby="job-results-flow-title">
+  <h4 id="job-results-flow-title">От рабочей копии до потребителей Job 1</h4>
+  <ol class="lesson-flow three-stage-flow" role="list">
+    <li class="flow-node"><strong>Скрипт подготовки</strong><small><code>validate-release-candidate.sh</code></small></li>
+    <li class="flow-node"><strong>Временная копия</strong><small><code>$RUNNER_TEMP/zed-overlay</code></small></li>
+    <li class="flow-node"><strong>Проверки кандидата</strong><small>Готовят результаты для передачи</small></li>
+  </ol>
+  <div class="job-result-branches">
+    <div class="job-publication">
+      <p class="job-result-edge"><span aria-hidden="true">↓</span> Путь публикации</p>
+      <div class="flow-node job-result-payload">
+        <div><strong>Значения job outputs</strong><small><code>handoff_ready</code>, <code>archive_mode</code>, <code>metadata_sha256</code>, <code>started_at</code> из <code>run-clock</code></small></div>
+        <div><strong>Файлы в Actions Artifacts</strong><small><code>release-handoff</code> и <code>crates-distribution</code></small></div>
+      </div>
+      <p class="job-result-edge"><span aria-hidden="true">↓</span> Job 1 завершился успешно, handoff готов, production-режим</p>
+      <div class="job-result-consumers">
+        <div class="flow-node"><strong>Job 2 · проверка</strong><small>Читает outputs и скачивает оба набора из Actions.</small></div>
+        <div class="flow-node"><strong>Job 3 · публикация</strong><small>После успеха Job 2 и при запуске из <code>main</code> получает outputs и скачивает оба набора из Actions.</small></div>
+      </div>
+    </div>
+    <div class="job-diagnostics">
+      <p class="job-result-edge"><span aria-hidden="true">↓</span> Если проверки оставили логи</p>
+      <div class="flow-node artifact-optional"><strong>Диагностический артефакт</strong><small><code>independent-validation-logs</code></small></div>
+      <p class="job-result-edge"><span aria-hidden="true">↓</span> Summary → Artifacts</p>
+      <div class="flow-node"><strong>Читатель запуска</strong><small>Скачивает логи, пока они доступны.</small></div>
+    </div>
+  </div>
+  <figcaption>Успех Job 2 открывает путь к Job 3. Оба job обращаются к исходным артефактам Job 1. Диагностическая ветка доступна и после ошибки, если файлы успели появиться и загрузиться.</figcaption>
+</figure>
+
+{% capture next_job_start %}  # Перед job с правами на запись повторно сверяем handoff с commit,
+  # для которого запущен workflow.
+  validate-release-handoff:{% endcapture %}
+
+{% include source-preview.html source=next_job_start label="Начало Job 2 · строки 105–107" path=workflow_path revision=reviewed_revision start=105 comment="#" %}
