@@ -6,4 +6,8 @@
   {%- assign first = line | strip | slice: 0 %}
   <span class="source-line{% if include.comment == first %} source-comment{% endif %}" data-line="{{ number }}"><span class="source-number">{{ number }}</span><code>{{ line | escape }}</code></span>
   {%- endfor %}
+  {%- if include.trailing_blank %}
+  {%- assign number = include.start | plus: lines.size %}
+  <span class="source-line" data-line="{{ number }}"><span class="source-number">{{ number }}</span><code></code></span>
+  {%- endif %}
 </div>

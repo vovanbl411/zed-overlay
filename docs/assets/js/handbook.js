@@ -624,7 +624,7 @@ function initExpression(figure) {
   controls.hidden = false;
 }
 
-function traceReleaseGates(figure, count, failure) {
+export function traceReleaseGates(figure, count, failure) {
   const states = Array.from({length: count}, (_, index) => {
     if (failure === -1 || index < failure) return 'PASS';
     return index === failure ? 'FAIL' : 'SKIP';

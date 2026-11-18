@@ -1,6 +1,7 @@
 {%- assign preview_lines = include.source | split: '
 ' -%}
 {%- assign preview_end = include.start | plus: preview_lines.size | minus: 1 -%}
+{% if include.trailing_blank %}{% assign preview_end = preview_end | plus: 1 %}{% endif -%}
 <details class="source-preview" data-source-preview{% if include.open %} open{% endif %}>
   <summary>{{ include.label | escape }}</summary>
   <div class="source-preview-meta">
@@ -10,7 +11,7 @@
   {% if include.panels %}
   <div class="selector" data-selector markdown="1">
   {% endif %}
-  {% include source-lines.html source=include.source start=include.start label=include.label comment=include.comment interactive=include.panels %}
+  {% include source-lines.html source=include.source start=include.start label=include.label comment=include.comment interactive=include.panels trailing_blank=include.trailing_blank %}
   {% if include.panels %}
   {{ include.panels }}
   </div>
