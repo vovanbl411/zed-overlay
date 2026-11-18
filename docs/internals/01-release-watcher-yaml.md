@@ -1,7 +1,7 @@
 ---
 layout: handbook
 title: Release watcher — разбор YAML
-description: "Как workflow задаёт условия запуска и выполняет Job 1: от первых проверок до передачи артефактов и отчёта."
+description: "Как workflow готовит кандидат, передаёт артефакты и проверяет их перед публикацией."
 chapter: 1
 eyebrow: Глава 01 / Продолжение
 permalink: /internals/01-release-watcher/yaml/
@@ -13,9 +13,11 @@ sections:
   - { id: job-check, label: "2.5. Job 1 — начало выполнения workflow" }
   - { id: job-steps, label: "2.6. Job 1 — первые шаги выполнения" }
   - { id: job-results, label: "2.7. Job 1 — результаты и отчёт" }
+  - { id: job-validate-handoff, label: "2.8. Job 2 — проверка handoff" }
 ---
 
 {% assign reviewed_revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
+{% assign job2_script_revision = 'fbf4f2a6adcaa99a585fd487a9c77d024f2b7adf' %}
 {% assign workflow_path = '.github/workflows/zed-release-watcher.yml' %}
 {% assign docker_path = 'scripts/ci/independent-crates.sh' %}
 {% assign candidate_path = 'scripts/ci/validate-release-candidate.sh' %}
@@ -1784,7 +1786,48 @@ GitHub Actions проверяет `if` перед запуском шага. К 
 
 Состав зависит от пройденных этапов. Файлы читает человек, который разбирает
 запуск. Срок хранения **7 дней**, при отсутствии файлов действует `ignore`.
-[Запись логов в скрипте](https://github.com/vovanbl411/zed-overlay/blob/{{ source_revision }}/scripts/ci/independent-crates.sh#L78-L168).
+`tee` сохраняет вывод генератора и Portage. Замеры дописываются в
+`timing.txt`, а `result.txt` получает режим после завершения проверок.
+
+{% capture log_generator %}{% raw %}  "$overlay/scripts/ci/run-pycargoebuild.sh" "$work/venv/bin/pycargoebuild" \
+    "$source_dir" "$archive" "$work/cache" "$work/license-mapping.conf" \
+    "$work/generated-zed.ebuild" "$work" 2>&1 | tee "$work/logs/generator.log"{% endraw %}{% endcapture %}
+
+<div id="log-generator" markdown="1">
+
+{% include source-preview.html source=log_generator label="Вывод генератора · строки 76–78" path=docker_path revision=source_revision start=76 comment="#" %}
+
+</div>
+{% capture log_timing %}{% raw %}      start=$SECONDS
+      emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
+      echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt{% endraw %}{% endcapture %}
+
+<div id="log-timing" markdown="1">
+
+{% include source-preview.html source=log_timing label="Запись времени Portage · строки 139–141" path=docker_path revision=source_revision start=139 comment="#" %}
+
+</div>
+{% capture log_portage %}{% raw %}      echo "Snapshot and patch validation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+    ' 2>&1 | tee "$work/logs/portage.log"
+  cat "$work/logs/timing.txt" >> "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+
+<div id="log-portage" markdown="1">
+
+{% include source-preview.html source=log_portage label="Вывод Portage и замеры · строки 145–147" path=docker_path revision=source_revision start=145 comment="#" %}
+
+</div>
+{% capture log_result %}{% raw %}timed 'Metadata and source integrity validation' verify_inputs
+timed 'GIT_CRATES synchronization' sync_metadata
+timed 'Candidate validation' validate_candidate
+mkdir "$RUNNER_TEMP/crates-distribution"
+cp "$archive" "$metadata" "$RUNNER_TEMP/crates-distribution/"
+printf '%s\n' "$mode" > "$work/logs/result.txt"{% endraw %}{% endcapture %}
+
+<div id="log-result" markdown="1">
+
+{% include source-preview.html source=log_result label="Запись итога подготовки · строки 163–168" path=docker_path revision=source_revision start=163 comment="#" %}
+
+</div>
 
 {% include source-preview.html source=diagnostic_upload label="Загрузка логов · строки 62–69" path=workflow_path revision=reviewed_revision start=62 comment="#" open=true %}
 
@@ -1841,7 +1884,25 @@ Job 2 проверяет согласованность архива и мета
 
 Job 2 и Job 3 скачивают каждый из двух артефактов напрямую из хранилища
 текущего запуска Actions. Для Job 3 успешная проверка Job 2 служит условием
-запуска. Источник файлов у обоих один. [Скачивание в Job 2](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L121-L131) · [Скачивание в Job 3](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L170-L180).
+запуска. Источник файлов у обоих один. [Скачивание в Job 2](#job2-download-all).
+
+{% capture job3_downloads %}{% raw %}      - name: Download release handoff
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution{% endraw %}{% endcapture %}
+
+<div id="job3-downloads" markdown="1">
+
+{% include source-preview.html source=job3_downloads label="Скачивание в Job 3 · строки 170–180" path=workflow_path revision=reviewed_revision start=170 comment="#" %}
+
+</div>
 
 <figure class="figure lesson-figure artifact-retention">
   <figcaption>Срок хранения артефактов Actions со дня загрузки</figcaption>
@@ -2008,7 +2069,22 @@ GitHub Release assets прикреплены к релизу, откуда Porta
 Если `handoff_ready` равен `true`, Job 1 пишет только время проверки.
 Итоговую строку тогда дописывает шаг Job 3, если job запустился и шаг отчёта выполнился с числовой отметкой. Поздний расчёт от того же
 `started_at` включает и прошедшее между jobs время. При сбое загрузки либо
-пропуске публикации итоговая строка может отсутствовать. [Итоговый шаг отчёта в workflow](https://github.com/vovanbl411/zed-overlay/blob/{{ reviewed_revision }}/{{ workflow_path }}#L233-L240).
+пропуске публикации итоговая строка может отсутствовать.
+
+{% capture job3_report %}{% raw %}      - name: Report workflow processing time
+        if: always()
+        env:
+          CHECK_STARTED_AT: ${{ needs.check.outputs.started_at }}
+        run: |
+          if [[ "$CHECK_STARTED_AT" =~ ^[0-9]+$ ]]; then
+            echo "Total workflow processing: $(( $(date +%s) - CHECK_STARTED_AT ))s" >> "$GITHUB_STEP_SUMMARY"
+          fi{% endraw %}{% endcapture %}
+
+<div id="job3-report" markdown="1">
+
+{% include source-preview.html source=job3_report label="Итоговый шаг отчёта · строки 233–240" path=workflow_path revision=reviewed_revision start=233 comment="#" %}
+
+</div>
 
 ### 2.7.6. Как связаны результаты первого job. {#job-check-data-flow}
 
@@ -2042,8 +2118,946 @@ GitHub Release assets прикреплены к релизу, откуда Porta
   <figcaption>Успех Job 2 открывает путь к Job 3. Оба job обращаются к исходным артефактам Job 1. Диагностическая ветка доступна и после ошибки, если файлы успели появиться и загрузиться.</figcaption>
 </figure>
 
-{% capture next_job_start %}  # Перед job с правами на запись повторно сверяем handoff с commit,
-  # для которого запущен workflow.
-  validate-release-handoff:{% endcapture %}
+## 2.8. Job 2 — Validate release handoff {#job-validate-handoff}
 
-{% include source-preview.html source=next_job_start label="Начало Job 2 · строки 105–107" path=workflow_path revision=reviewed_revision start=105 comment="#" %}
+{% capture job2 %}{% raw %}  # Перед job с правами на запись повторно сверяем handoff с commit,
+  # для которого запущен workflow.
+  validate-release-handoff:
+    name: Validate release handoff
+    needs: check
+    if: needs.check.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download release handoff
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+
+      - name: Validate release handoff boundary
+        env:
+          EXPECTED_METADATA_SHA256: ${{ needs.check.outputs.metadata_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+            --validate-handoff "$RUNNER_TEMP/release-handoff" \
+            --expected-base-commit "$GITHUB_SHA"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+            --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" --base-commit "$GITHUB_SHA" \
+            --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256"
+          echo "Release handoff and distribution boundaries: OK"{% endraw %}{% endcapture %}
+
+<div id="job2" markdown="1">
+
+{% include source-preview.html source=job2 label="Job 2 целиком · строки 105–147" path=workflow_path revision=reviewed_revision start=105 comment="#" %}
+
+</div>
+
+### 2.8.1. Зачем нам отдельное задание проверки? {#handoff-boundary}
+
+Первый job обращается к внешним источникам, генерирует или повторно использует
+архив и проверяет временный кандидат. Bash и Python управляют подготовкой,
+Docker нужен для проверок Portage. Во второй job передаются два набора файлов
+и несколько outputs. На свежем runner он проверяет структуру, целостность
+и согласованность этих результатов перед публикацией.
+
+<figure class="figure lesson-figure release-architecture" aria-labelledby="handoff-architecture-title">
+  <h4 id="handoff-architecture-title">От подготовки к публикации</h4>
+  <ol class="lesson-flow three-stage-flow" role="list">
+    <li class="flow-node"><strong>Job 1 · Prepare</strong><code>contents: read</code><small>Внешние источники → Python, Bash и Docker → проверенный кандидат.</small></li>
+    <li class="flow-node release-boundary"><strong>Job 2 · Validate</strong><code>contents: read</code><small>Свежий runner проверяет структуру, целостность и согласованность.</small></li>
+    <li class="flow-node"><strong>Job 3 · Publish</strong><code>contents: write</code><br><code>pull-requests: write</code><small>Публикует при выполнении всех условий.</small></li>
+  </ol>
+  <p class="release-edge"><strong>Допуск</strong> Job 1 → Job 2 → Job 3. Job 3 также зависит напрямую от Job 1.</p>
+  <p class="release-edge release-data"><strong>Данные</strong> Job 1 → два набора файлов в Actions Artifacts → каждый из Job 2 и Job 3 скачивает их сам. Outputs Job 1 передаются через <code>needs</code>.</p>
+  <figcaption>При сбое проверки цепочка допуска обрывается на Job 2. Его результат для Job 3 — статус.</figcaption>
+</figure>
+
+Job 2 запускает доверенный код валидаторов из той же ревизии workflow.
+Разделение ограничивает работу с правами на запись и добавляет обязательную
+проверку границы передачи. Гарантии ограничены проверяемыми свойствами
+файлов. Сами валидаторы не устанавливают независимо подлинность всех
+результатов подготовки, не проверяют безопасность исходного кода и не
+повторяют каждую проверку upstream или Portage.
+
+### 2.8.2. Needs — как GitHub определяет порядок выполнения. {#handoff-needs}
+
+{% capture job2_needs %}{% raw %}    needs: check{% endraw %}{% endcapture %}
+
+<div id="job2-needs" markdown="1">
+
+{% include source-preview.html source=job2_needs label="Зависимость Job 2 · строка 109" path=workflow_path revision=reviewed_revision start=109 comment="#" %}
+
+</div>
+
+Шаги внутри каждого из этих jobs идут по порядку. Для jobs порядок в YAML
+сам по себе ничего не планирует. `needs: check` делает завершение Job 1
+предпосылкой для Job 2 и открывает доступ к результату и outputs Job 1.
+[Синтаксис `needs` в GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds).
+
+<figure class="figure lesson-figure" data-handoff-timeline aria-labelledby="needs-timeline-title">
+  <h4 id="needs-timeline-title">Дорожки выполнения</h4>
+  <div class="lab-controls" data-lab-controls hidden><label>Зависимость <select><option value="on">Включена</option><option value="off">Отключена</option></select></label></div>
+  <div class="needs-timeline" data-dependency="on">
+    <strong>Job 1</strong><div class="needs-track"><span>Выполняется</span></div>
+    <strong>Job 2</strong><div class="needs-track"><span data-wait>Ждёт Job 1</span><span>Выполняется</span></div>
+  </div>
+  <p data-lab-result role="status">Job 2 получает допуск после Job 1, если выполнены остальные условия.</p>
+  <figcaption>Дорожки показывают допустимый порядок. Время старта зависит от планировщика и наличия runner.</figcaption>
+</figure>
+
+При отключённой зависимости два условных независимых задания могут идти
+параллельно. Чтобы так изменить настоящий workflow, пришлось бы также
+переписать выражения с `needs.check`.
+
+### 2.8.3. Условия запуска второго job. {#handoff-admission}
+
+{% capture job2_if %}{% raw %}    if: needs.check.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation){% endraw %}{% endcapture %}
+
+<div id="job2-if" markdown="1">
+
+{% include source-preview.html source=job2_if label="Условие запуска · строка 110" path=workflow_path revision=reviewed_revision start=110 comment="#" open=true %}
+
+</div>
+
+Внутри Job 1 `steps.prepare-and-validate.outputs` относится к отдельному шагу.
+В [объявлении outputs](#job-outputs) job публикует выбранные значения. Так
+`needs.check.outputs.handoff_ready` становится доступен Job 2, а
+`needs.check.result` содержит итоговый статус всего Job 1, включая загрузку
+артефактов. Как и в [выражении загрузки](#artifact-upload-gates), здесь
+сравнивают строковый output с `'true'` и исключают ручной режим независимой
+проверки. В `if` без функции статуса GitHub также требует успеха зависимости.
+При первом ложном условии следующие проверки допуска уже не нужны.
+[Выражения и функции статуса GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions).
+
+<figure class="figure lesson-figure" data-handoff-admission aria-labelledby="handoff-admission-title">
+  <h4 id="handoff-admission-title">Допуск Job 2</h4>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label>Результат Job 1 <select data-check-result><option>success</option><option>failure</option><option>cancelled</option><option>skipped</option></select></label>
+    <label><input type="checkbox" data-ready checked> <code>handoff_ready</code> равен <code>"true"</code></label>
+    <label><input type="checkbox" data-manual> Ручной запуск в режиме проверки</label>
+  </div>
+  <ol class="lesson-flow gate-flow release-gates three-stage-flow" role="list">
+    <li class="flow-node" data-gate-state="PASS"><strong>Job 1 завершился успешно</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="PASS"><strong><code>handoff_ready</code> равен <code>"true"</code></strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="PASS"><strong>Режим проверки выключен</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+  </ol>
+  <p data-lab-result role="status">RUN · Job 2 допущен к запуску.</p>
+  <figcaption>Начальное состояние соответствует новому релизу в production. Параметры модели можно менять независимо, хотя некоторые сочетания в реальном запуске не возникают.</figcaption>
+</figure>
+
+В строке 110 нет проверки ветки. Ручной production-запуск из другой ветки
+может дойти до Job 2, если выполнит перечисленные условия. Проверка
+`refs/heads/main` находится в [условии Job 3](#handoff-final). Она относится к
+этому объявлению job. Права, которые может запросить изменённый workflow в
+другой ветке, определяются настройками GitHub и разрешениями запуска.
+
+### 2.8.4. Почему снова выполняется checkout? {#handoff-checkout}
+
+{% capture job2_checkout %}{% raw %}      - name: Check out the workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false{% endraw %}{% endcapture %}
+
+<div id="job2-checkout" markdown="1">
+
+{% include source-preview.html source=job2_checkout label="Checkout на втором runner · строки 115–119" path=workflow_path revision=reviewed_revision start=115 comment="#" open=true %}
+
+</div>
+
+Оба задания используют GitHub-hosted `ubuntu-24.04`. Каждый job получает
+собственный runner и рабочий каталог. **Checkout** даёт Job 2 скрипты и
+исходный `app-editors/zed/Manifest`. **Артефакты** содержат файлы кандидата
+и bundle. **Outputs** Job 1 нужны для допуска и сверки.
+
+{% raw %}`ref: ${{ github.sha }}`{% endraw %} явно выбирает коммит запуска. Как и в
+[разборе checkout Job 1](#step-checkout-explained), SHA служит фиксированной
+точкой отсчёта. `persist-credentials: false` [отключает сохранение учётных
+данных для последующих команд Git](#checkout-credentials).
+
+<figure class="figure lesson-figure" data-handoff-revision aria-labelledby="handoff-revision-title">
+  <h4 id="handoff-revision-title">Какой коммит получит второй runner?</h4>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label><input type="checkbox" data-main-advance> <code>main</code> продвигается во время Job 1</label>
+    <label>Явный <code>ref</code> Job 2 <select data-checkout-ref><option value="sha">github.sha</option><option value="main">main · гипотеза</option></select></label>
+  </div>
+  <div class="commit-graph" data-job2-at="B">
+    <div class="commit-node"><strong>A</strong><small>История</small></div>
+    <div class="commit-node"><strong>B</strong><small>Коммит запуска</small><span><code data-main-b>main</code></span></div>
+    <div class="commit-node" data-commit-c hidden><strong>C</strong><small>Новый коммит</small><span><code>main</code></span></div>
+    <div class="commit-runner" data-job1-commit>Runner Job 1 <strong>→ B</strong></div>
+    <div class="commit-runner" data-job2-commit>Runner Job 2 <strong data-job2-target>→ B</strong></div>
+  </div>
+  <p data-lab-result role="status">Оба runner используют B.</p>
+  <figcaption>A, B и C — условные коммиты. В модели Job 1 начал работу на B.</figcaption>
+</figure>
+
+Если `main` продвинется, явно заданный `ref: main` может выбрать C, где уже
+другой исходный Manifest или другой код валидаторов. Модель сравнивает два
+**явных** значения `ref`. Поведение checkout без `ref` зависит от контекста
+события, как в первом job.
+
+### 2.8.5. Получаем artifacts. {#handoff-downloads}
+
+{% capture job2_download_all %}{% raw %}      - name: Download release handoff
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution{% endraw %}{% endcapture %}
+
+<div id="job2-download-all" markdown="1">
+
+{% include source-preview.html source=job2_download_all label="Оба скачивания · строки 121–131" path=workflow_path revision=reviewed_revision start=121 comment="#" %}
+
+</div>
+
+Официальный action `actions/download-artifact` закреплён за коммитом.
+Параметр `name` выбирает набор из **текущего запуска** Actions. `path`
+задаёт каталог назначения. {% raw %}`${{ runner.temp }}`{% endraw %} в выражении Actions и
+`$RUNNER_TEMP` в Bash указывают на временный каталог конкретного runner.
+[Документация download-artifact](https://github.com/actions/download-artifact).
+
+<div class="selector figure artifact-explorer" data-selector data-label="Скачиваемый артефакт" markdown="1">
+
+Ожидаемый состав на условном примере Zed 1.28.1.
+
+<div class="selection-panel" data-panel data-label="release-handoff" id="transport-release-handoff" markdown="1">
+
+#### `release-handoff`
+
+<ol class="lesson-flow transport-flow" role="list">
+  <li class="flow-node"><strong>Runner Job 1</strong><code>$RUNNER_TEMP/<wbr>release-handoff/</code></li>
+  <li class="transport-action"><code>upload-artifact</code></li>
+  <li class="flow-node release-boundary"><strong>Actions Artifacts</strong><code>release-handoff</code></li>
+  <li class="transport-action"><code>download-artifact</code></li>
+  <li class="flow-node"><strong>Runner Job 2</strong><code>$RUNNER_TEMP/<wbr>release-handoff/</code></li>
+</ol>
+
+<div class="artifact-tree workspace handoff-tree"><strong>release-handoff/</strong>
+  <ul role="list">
+    <li><code>release.json</code></li>
+    <li><code>app-editors/</code><ul role="list">
+      <li><code>zed/</code><ul role="list">
+        <li><code>Manifest</code></li>
+        <li><code>zed-1.28.1.ebuild</code></li>
+        <li><code>files/</code><ul role="list">
+          <li><code>zed-1.28.1-wayland-only.patch</code></li>
+        </ul></li>
+      </ul></li>
+    </ul></li>
+  </ul>
+</div>
+
+{% capture download_release_handoff %}{% raw %}      - name: Download release handoff
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff{% endraw %}{% endcapture %}
+
+<div id="download-release-handoff" markdown="1">
+
+{% include source-preview.html source=download_release_handoff label="Скачивание release-handoff · строки 121–125" path=workflow_path revision=reviewed_revision start=121 comment="#" open=true %}
+
+</div>
+
+</div>
+
+<div class="selection-panel" data-panel data-label="crates-distribution" id="transport-crates-distribution" markdown="1">
+
+#### `crates-distribution`
+
+<ol class="lesson-flow transport-flow" role="list">
+  <li class="flow-node"><strong>Runner Job 1</strong><code>$RUNNER_TEMP/<wbr>crates-distribution/</code></li>
+  <li class="transport-action"><code>upload-artifact</code></li>
+  <li class="flow-node release-boundary"><strong>Actions Artifacts</strong><code>crates-distribution</code></li>
+  <li class="transport-action"><code>download-artifact</code></li>
+  <li class="flow-node"><strong>Runner Job 2</strong><code>$RUNNER_TEMP/<wbr>crates-distribution/</code></li>
+</ol>
+
+<div class="artifact-tree workspace handoff-tree"><strong>crates-distribution/</strong>
+  <ul role="list">
+    <li><code>zed-1.28.1-overlay-crates.json</code></li>
+    <li><code>zed-1.28.1-overlay-crates.tar.xz</code></li>
+  </ul>
+</div>
+
+{% capture download_crates_distribution %}{% raw %}      - name: Download crates distribution bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution{% endraw %}{% endcapture %}
+
+<div id="download-crates-distribution" markdown="1">
+
+{% include source-preview.html source=download_crates_distribution label="Скачивание crates-distribution · строки 127–131" path=workflow_path revision=reviewed_revision start=127 comment="#" open=true %}
+
+</div>
+
+</div>
+
+</div>
+
+Ошибка любого скачивания останавливает выполнение до валидации. При успешном
+скачивании состав и содержимое файлов проверяют следующие команды. В Job 2
+появляются только скачанные наборы. Полный временный workspace Job 1 остаётся
+на первом runner.
+
+### 2.8.6. Запускаем проверку границы передачи. {#handoff-bash}
+
+{% capture job2_bash %}{% raw %}      - name: Validate release handoff boundary
+        env:
+          EXPECTED_METADATA_SHA256: ${{ needs.check.outputs.metadata_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+            --validate-handoff "$RUNNER_TEMP/release-handoff" \
+            --expected-base-commit "$GITHUB_SHA"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+            --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" --base-commit "$GITHUB_SHA" \
+            --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256"
+          echo "Release handoff and distribution boundaries: OK"{% endraw %}{% endcapture %}
+
+<div id="job2-bash" markdown="1">
+
+{% include source-preview.html source=job2_bash label="Шаг валидации · строки 133–147" path=workflow_path revision=reviewed_revision start=133 comment="#" open=true %}
+
+</div>
+
+`env` передаёт `needs.check.outputs.metadata_sha256` шагу под именем
+`EXPECTED_METADATA_SHA256`. `run: |` сохраняет переводы строк блока YAML,
+а `shell: bash` задаёт оболочку для его выполнения. Bash запускает два
+валидатора по очереди, затем печатает итоговую строку.
+
+- `-e` (errexit) может остановить скрипт после необработанной ошибки команды.
+  Среди исключений — команда, результат которой проверяет `if`.
+- `-u` (nounset) считает обращение к незаданной переменной ошибкой, за
+  исключением специальных случаев, например подстановки с явным значением по умолчанию.
+- `-o pipefail` возвращает из конвейера статус самой правой команды с
+  ненулевым статусом. Если все успешны, статус равен нулю.
+
+<figure class="figure lesson-figure" data-handoff-bash aria-labelledby="handoff-bash-title">
+  <h4 id="handoff-bash-title">Что меняется при включении опции?</h4>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label>Опция <select data-bash-option><option value="e">-e · errexit</option><option value="u">-u · nounset</option><option value="pipefail">-o pipefail</option></select></label>
+    <label><input type="checkbox" data-bash-enabled checked> Опция включена</label>
+  </div>
+  <pre><code data-bash-code>false
+echo "Продолжаем"</code></pre>
+  <p data-lab-result role="status">Код 1 · Bash прерывает скрипт после false, echo пропущен.</p>
+  <figcaption>Модель показывает заранее заданные команды. В каждом примере остальные опции отключены.</figcaption>
+</figure>
+
+Без `-e` в этом примере выполняется `echo`. Без `-u` незаданная переменная
+разворачивается в пустую строку. Без `pipefail` статус `false | cat` определяет
+последняя команда, `cat`.
+GitHub Actions при явном `shell: bash` уже запускает Bash с `-e` и
+`pipefail`. Строка `set -euo pipefail` добавляет `nounset` и фиксирует
+ожидаемое поведение в самом скрипте. Если первая команда Python возвращает
+ненулевой код, Bash пропускает вторую команду и итоговый `echo`.
+[Параметры оболочки в GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell) · [Опции `set` в Bash](https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html).
+
+### 2.8.7. Первый валидатор — структура release handoff. {#handoff-structure}
+
+{% capture job2_validate_handoff %}{% raw %}          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+            --validate-handoff "$RUNNER_TEMP/release-handoff" \
+            --expected-base-commit "$GITHUB_SHA"{% endraw %}{% endcapture %}
+
+<div id="job2-validate-handoff" markdown="1">
+
+{% include source-preview.html source=job2_validate_handoff label="Вызов валидатора handoff · строки 139–141" path=workflow_path revision=reviewed_revision start=139 comment="#" open=true %}
+
+</div>
+
+`--prepare` разрешает подготовку кандидата. `--validate-handoff` читает
+полученный каталог и проверяет его без подготовки, применения файлов или
+публикации. `--expected-base-commit "$GITHUB_SHA"` привязывает проверку к
+коммиту запуска.
+
+{% capture handoff_metadata %}{% raw %}def _artifact_paths(candidate_version: str) -> tuple[Path, Path, Path]:
+    _validate_candidate_version(candidate_version)
+    return (
+        MANIFEST_PATH,
+        Path(f"app-editors/zed/zed-{candidate_version}.ebuild"),
+        Path(f"app-editors/zed/files/zed-{candidate_version}-wayland-only.patch"),
+    )
+
+
+def _release_metadata(candidate_version: str, base_commit: str) -> dict[str, object]:
+    manifest_path, candidate_ebuild_path, candidate_patch_path = _artifact_paths(
+        candidate_version
+    )
+    _validate_base_commit(base_commit)
+    return {
+        "schema_version": HANDOFF_SCHEMA_VERSION,
+        "base_commit": base_commit,
+        "release_tag": f"v{candidate_version}",
+        "candidate_version": candidate_version,
+        "manifest_path": manifest_path.as_posix(),
+        "candidate_ebuild_path": candidate_ebuild_path.as_posix(),
+        "candidate_patch_path": candidate_patch_path.as_posix(),
+    }{% endraw %}{% endcapture %}
+
+<div id="handoff-metadata" markdown="1">
+
+{% include source-preview.html source=handoff_metadata label="Канонические пути и метаданные · строки 98–120" path="scripts/release_handoff.py" revision=job2_script_revision start=98 comment="#" %}
+
+</div>
+
+<figure class="figure lesson-figure" data-handoff-json aria-labelledby="handoff-json-title">
+  <h4 id="handoff-json-title">Поля release.json</h4>
+  <div class="lab-controls" data-lab-controls hidden><label>Поле <select><option>schema_version</option><option>base_commit</option><option>release_tag</option><option>candidate_version</option><option>manifest_path</option><option>candidate_ebuild_path</option><option>candidate_patch_path</option></select></label></div>
+  <pre class="release-json"><code>{
+  <span data-json-field="schema_version" data-purpose="Версия контракта передачи. Валидатор ожидает целое число 1.">"schema_version": 1,</span>
+  <span data-json-field="base_commit" data-purpose="Коммит overlay, от которого подготовлен кандидат. Job 2 сверяет его с GITHUB_SHA.">"base_commit": "0123456789abcdef0123456789abcdef01234567",</span>
+  <span data-json-field="release_tag" data-purpose="Тег upstream получается добавлением v к версии кандидата.">"release_tag": "v1.28.1",</span>
+  <span data-json-field="candidate_version" data-purpose="Версия кандидата определяет имена ebuild, патча и файлов distribution.">"candidate_version": "1.28.1",</span>
+  <span data-json-field="manifest_path" data-purpose="Фиксированный путь к Manifest кандидата внутри handoff.">"manifest_path": "app-editors/zed/Manifest",</span>
+  <span data-json-field="candidate_ebuild_path" data-purpose="Канонический путь к ebuild для этой версии.">"candidate_ebuild_path": "app-editors/zed/zed-1.28.1.ebuild",</span>
+  <span data-json-field="candidate_patch_path" data-purpose="Канонический путь к обязательному Wayland-патчу для этой версии.">"candidate_patch_path": "app-editors/zed/files/zed-1.28.1-wayland-only.patch"</span>
+}</code></pre>
+  <p data-lab-result role="status">Версия контракта передачи. Валидатор ожидает целое число 1.</p>
+  <figcaption>Учебный JSON для Zed 1.28.1. SHA overlay вымышленный.</figcaption>
+  <noscript><ul role="list"><li><code>schema_version</code> — Версия контракта передачи. Валидатор ожидает целое число 1.</li><li><code>base_commit</code> — Коммит overlay, от которого подготовлен кандидат. Job 2 сверяет его с GITHUB_SHA.</li><li><code>release_tag</code> — Тег upstream получается добавлением v к версии кандидата.</li><li><code>candidate_version</code> — Версия кандидата определяет имена ebuild, патча и файлов distribution.</li><li><code>manifest_path</code> — Фиксированный путь к Manifest кандидата внутри handoff.</li><li><code>candidate_ebuild_path</code> — Канонический путь к ebuild для этой версии.</li><li><code>candidate_patch_path</code> — Канонический путь к обязательному Wayland-патчу для этой версии.</li></ul></noscript>
+</figure>
+
+`base_commit` относится к репозиторию overlay. `upstream_commit` в метаданных
+distribution относится к исходному репозиторию Zed. Проверка сначала сверяет
+набор ключей, версию схемы и согласованность тега, версии и путей, затем
+сравнивает коммит и обходит дерево.
+
+{% capture handoff_validation %}{% raw %}def validate_release_handoff(
+    destination: Path, *, expected_base_commit: str | None = None
+) -> dict[str, object]:
+    """Fail closed unless a handoff contains exactly the expected artifact."""
+    if expected_base_commit is not None:
+        _validate_base_commit(expected_base_commit)
+
+    release_json = Path("release.json")
+    try:
+        root_mode = destination.lstat().st_mode
+    except FileNotFoundError as error:
+        raise HandoffError(f"Handoff artifact is missing: {destination}") from error
+    if not stat.S_ISDIR(root_mode):
+        raise HandoffError(f"Handoff artifact must be a directory: {destination}")
+    _require_regular_file(destination / release_json, "release.json")
+    metadata = _read_release_metadata(destination / release_json)
+    expected_keys = {
+        "schema_version",
+        "base_commit",
+        "release_tag",
+        "candidate_version",
+        "manifest_path",
+        "candidate_ebuild_path",
+        "candidate_patch_path",
+    }
+    if set(metadata) != expected_keys:
+        raise HandoffError("release.json fields do not match the handoff schema")
+    if (
+        type(metadata["schema_version"]) is not int
+        or metadata["schema_version"] != HANDOFF_SCHEMA_VERSION
+    ):
+        raise HandoffError("release.json has an invalid schema_version")
+
+    candidate_version = metadata["candidate_version"]
+    base_commit = metadata["base_commit"]
+    if not isinstance(candidate_version, str):
+        raise HandoffError("release.json has an invalid candidate_version")
+    if not isinstance(base_commit, str):
+        raise HandoffError("release.json has an invalid base_commit")
+    _validate_candidate_version(candidate_version)
+    _validate_base_commit(base_commit)
+    expected_metadata = _release_metadata(candidate_version, base_commit)
+    if metadata != expected_metadata:
+        raise HandoffError("release.json version, tag, or paths are inconsistent")
+    if expected_base_commit is not None and base_commit != expected_base_commit:
+        raise HandoffError("release.json base_commit does not match the expected commit")
+
+    expected_files = {Path("release.json"), *_artifact_paths(candidate_version)}
+    _validate_artifact_layout(destination, expected_files)
+    return expected_metadata{% endraw %}{% endcapture %}
+
+<div id="handoff-validation" markdown="1">
+
+{% include source-preview.html source=handoff_validation label="Проверка release.json и привязка к коммиту · строки 219–268" path="scripts/release_handoff.py" revision=job2_script_revision start=219 comment="#" %}
+
+</div>
+
+Функция `_validate_artifact_layout` разрешает ровно три вложенных каталога
+и четыре обычных файла. Она отвергает неожиданные каталоги и файлы, символические
+ссылки и специальные файлы. Allowlist перечисляет всё разрешённое, а
+denylist перечислял бы только известные запреты. При незнакомом входе
+валидатор останавливается с ошибкой (fail closed), поэтому он не пытается
+самостоятельно чинить структуру или игнорировать лишние файлы.
+
+{% capture handoff_layout %}{% raw %}def _validate_artifact_layout(destination: Path, expected_files: set[Path]) -> None:
+    try:
+        root_mode = destination.lstat().st_mode
+    except FileNotFoundError as error:
+        raise HandoffError(f"Handoff artifact is missing: {destination}") from error
+    if not stat.S_ISDIR(root_mode):
+        raise HandoffError(f"Handoff artifact must be a directory: {destination}")
+
+    expected_directories = {
+        Path("app-editors"),
+        Path("app-editors/zed"),
+        Path("app-editors/zed/files"),
+    }
+    found_files: set[Path] = set()
+    found_directories: set[Path] = set()
+
+    # Handoff приходит как отдельный artifact из CI: запрещаем symlink и special files,
+    # чтобы проверка не прочитала данные за пределами каталога artifact.
+    def walk(directory: Path, relative_directory: Path) -> None:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                relative_path = relative_directory / entry.name
+                mode = entry.stat(follow_symlinks=False).st_mode
+                if stat.S_ISLNK(mode):
+                    raise HandoffError(f"Handoff artifact contains symlink: {relative_path}")
+                if stat.S_ISDIR(mode):
+                    if relative_path not in expected_directories:
+                        raise HandoffError(
+                            f"Handoff artifact contains unexpected directory: {relative_path}"
+                        )
+                    found_directories.add(relative_path)
+                    walk(Path(entry.path), relative_path)
+                elif stat.S_ISREG(mode):
+                    if relative_path not in expected_files:
+                        raise HandoffError(
+                            f"Handoff artifact contains unexpected file: {relative_path}"
+                        )
+                    found_files.add(relative_path)
+                else:
+                    raise HandoffError(
+                        f"Handoff artifact contains special file: {relative_path}"
+                    )
+
+    walk(destination, Path())
+    if found_directories != expected_directories:
+        raise HandoffError("Handoff artifact is missing an expected directory")
+    if found_files != expected_files:
+        raise HandoffError("Handoff artifact is missing an expected file"){% endraw %}{% endcapture %}
+
+<div id="handoff-layout" markdown="1">
+
+{% include source-preview.html source=handoff_layout label="Обход дерева и allowlist · строки 159–206" path="scripts/release_handoff.py" revision=job2_script_revision start=159 comment="#" %}
+
+</div>
+
+<figure class="figure lesson-figure" data-handoff-layout aria-labelledby="handoff-layout-title">
+  <h4 id="handoff-layout-title">Что пропускает allowlist?</h4>
+  <div class="lab-controls" data-lab-controls hidden>
+    <label>Сценарий <select>
+      <option value="valid">Корректный handoff</option>
+      <option value="extra">Лишний файл</option>
+      <option value="symlink">Manifest заменён ссылкой</option>
+      <option value="missing">Отсутствует патч</option>
+      <option value="commit">Неверный base_commit</option>
+    </select></label>
+  </div>
+  <div class="artifact-tree workspace handoff-tree"><strong>release-handoff/</strong>
+  <ul role="list">
+    <li><code>release.json</code></li>
+    <li><code>app-editors/</code><ul role="list">
+      <li><code>zed/</code><ul role="list">
+        <li><code>Manifest</code> <strong data-handoff-symlink class="release-change" hidden>→ outside-Manifest · symlink</strong></li>
+        <li><code>zed-1.28.1.ebuild</code></li>
+        <li><code>files/</code><ul role="list">
+          <li data-handoff-patch><code>zed-1.28.1-wayland-only.patch</code></li>
+        </ul></li>
+      </ul></li>
+    </ul></li>
+    <li data-handoff-extra class="release-change" hidden><code>unexpected.txt</code> · лишний файл</li>
+  </ul>
+</div>
+  <p class="handoff-metadata"><code>release.json</code> → <code>"base_commit": "<span data-handoff-base data-expected="0123456789abcdef0123456789abcdef01234567" data-mismatch="fedcba9876543210fedcba9876543210fedcba98">0123456789abcdef0123456789abcdef01234567</span>"</code></p>
+  <p class="release-result" data-lab-result role="status">PASS · код 0. Структура и базовый коммит совпадают.</p>
+  <figcaption>Учебный пример с вымышленным SHA. В каждой попытке меняется одно свойство handoff.</figcaption>
+</figure>
+
+При успешной проверке CLI возвращает `0` и ничего не пишет в журнал.
+Метка PASS в модели показывает именно этот исход. Неверный коммит отклоняется
+ещё до обхода дерева. При структурном успехе содержимое разрешённых ebuild и
+патча остаётся за пределами гарантий этой команды.
+
+{% capture handoff_cli %}{% raw %}    if args.validate_handoff is not None:
+        try:
+            validate_release_handoff(
+                args.validate_handoff, expected_base_commit=args.expected_base_commit
+            )
+        except HandoffError as error:
+            print(f"Release handoff error: {error}", file=sys.stderr)
+            return 1
+        return 0{% endraw %}{% endcapture %}
+
+<div id="handoff-cli" markdown="1">
+
+{% include source-preview.html source=handoff_cli label="Вывод ошибки и код возврата · строки 393–401" path="scripts/release_handoff.py" revision=job2_script_revision start=393 comment="#" %}
+
+</div>
+
+### 2.8.8. Второй валидатор — crates distribution. {#handoff-distribution}
+
+{% capture job2_validate_bundle %}{% raw %}          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+            --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" --base-commit "$GITHUB_SHA" \
+            --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256"{% endraw %}{% endcapture %}
+
+<div id="job2-validate-bundle" markdown="1">
+
+{% include source-preview.html source=job2_validate_bundle label="Вызов валидатора bundle · строки 142–146" path=workflow_path revision=reviewed_revision start=142 comment="#" open=true %}
+
+</div>
+
+Подкоманда `bundle` выбирает проверку собранного набора. Четыре входа дают ей
+файлы кандидата, архив, исходную точку сравнения и ожидаемый хеш метаданных.
+
+<figure class="figure lesson-figure release-fanin" aria-labelledby="bundle-inputs-title">
+  <h4 id="bundle-inputs-title">Четыре входа <code>crates_distribution.py bundle</code></h4>
+  <div class="bundle-fanin">
+  <ul class="bundle-inputs" role="list">
+    <li class="flow-node"><code>--handoff</code><small>release.json, кандидат, патч и Manifest кандидата</small></li>
+    <li class="flow-node"><code>--bundle</code><small>Архив crates и JSON с его метаданными</small></li>
+    <li class="flow-node"><code>--base-commit</code><br><code>--base-manifest</code><small>SHA запуска и оригинальный Manifest из checkout</small></li>
+    <li class="flow-node"><code>--metadata-sha256</code><small>Ожидаемый SHA256 JSON из outputs Job 1</small></li>
+  </ul>
+  <div class="flow-node release-boundary"><strong>Валидатор bundle</strong><small>Сверяет входы между собой.</small></div>
+  </div>
+  <figcaption>Код выхода <code>0</code> при успехе, <code>1</code> при обработанной ошибке.</figcaption>
+</figure>
+
+{% capture bundle_order %}{% raw %}def validate_bundle(bundle: Path, handoff: Path, base_commit: str, base_manifest: Path,
+                    metadata_sha256: str) -> dict:
+    meta = release_handoff.validate_release_handoff(handoff, expected_base_commit=base_commit)
+    version = meta['candidate_version']
+    archive_name, metadata_name = names(version)
+    if not stat.S_ISDIR(bundle.lstat().st_mode) or {p.name for p in bundle.iterdir()} != {archive_name, metadata_name}:
+        raise ValueError('Distribution bundle has unexpected files')
+    if not SHA256.fullmatch(metadata_sha256):
+        raise ValueError('Invalid expected metadata digest')
+    data = read_metadata(bundle / metadata_name, version)
+    if sha256(bundle / metadata_name) != metadata_sha256:
+        raise ValueError('Metadata digest mismatch')
+    validate_archive(data, bundle / archive_name)
+    candidate = (handoff / meta['candidate_ebuild_path']).read_text(encoding='utf-8')
+    validate_uri(candidate, allow_legacy=False)
+    if 'gentoo-crate-dist/zed' in candidate:
+        raise ValueError('Candidate retains legacy crates source')
+    if sync.parse_entries(candidate) != data['git_crates']:
+        raise ValueError('Candidate GIT_CRATES disagrees with metadata')
+    inspector.verify_manifest(bundle / archive_name, handoff / meta['manifest_path'])
+    regular(base_manifest)
+    preserve_manifest(base_manifest, handoff / meta['manifest_path'])
+    return data{% endraw %}{% endcapture %}
+
+<div id="bundle-order" markdown="1">
+
+{% include source-preview.html source=bundle_order label="Порядок проверок validate_bundle() · строки 182–204" path="scripts/crates_distribution.py" revision=job2_script_revision start=182 comment="#" open=true %}
+
+</div>
+
+<figure class="figure lesson-figure" data-handoff-bundle aria-labelledby="handoff-bundle-title">
+  <h4 id="handoff-bundle-title">Где останавливается проверка bundle?</h4>
+  <div class="lab-controls" data-lab-controls hidden>
+    <label>Сценарий <select><option value="-1">Все входы согласованы</option><option value="0">Чужой коммит в release.json</option><option value="1">Лишний файл в bundle</option><option value="2">Неверный формат output</option><option value="3">Из JSON удалено обязательное поле</option><option value="4">JSON отличается от ожидаемого</option><option value="5">Байты архива изменились</option><option value="6">Возвращён прежний URL crates</option><option value="7">Список Git crates отличается</option><option value="8">В Manifest указан другой размер</option><option value="9">Удалена старая DIST-запись</option></select></label>
+  </div>
+  <div class="bundle-trace">
+    <ol class="bundle-checks" role="list">
+    <li id="bundle-check-1" class="flow-node" data-gate-state="PASS" data-error="release.json base_commit does not match the expected commit" data-reason="Handoff должен относиться к коммиту запуска." data-bundle-lines="184"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Проверить handoff и коммит</strong><small>release.json → GITHUB_SHA</small></div></li>
+    <li id="bundle-check-2" class="flow-node" data-gate-state="PASS" data-error="Distribution bundle has unexpected files" data-reason="Набор должен содержать ровно архив и JSON этой версии." data-bundle-lines="185–188"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Проверить состав bundle</strong><small>каталог → два ожидаемых имени</small></div></li>
+    <li id="bundle-check-3" class="flow-node" data-gate-state="PASS" data-error="Invalid expected metadata digest" data-reason="Без корректного ожидаемого SHA256 сверка потеряла бы смысл." data-bundle-lines="189–190"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Проверить формат ожидаемого SHA256</strong><small>Job 1 output → 64 шестнадцатеричных символа</small></div></li>
+    <li id="bundle-check-4" class="flow-node" data-gate-state="PASS" data-error="Metadata fields do not match schema" data-reason="Дальше нужны метаданные установленного формата." data-bundle-lines="191"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Прочитать JSON и проверить схему</strong><small>JSON → схема метаданных</small></div></li>
+    <li id="bundle-check-5" class="flow-node" data-gate-state="PASS" data-error="Metadata digest mismatch" data-reason="Файл прошёл проверку схемы, но отличается от результата, на который указывает output." data-bundle-lines="192–193"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Сравнить SHA256 метаданных</strong><small>SHA256 JSON → Job 1 output</small></div></li>
+    <li id="bundle-check-6" class="flow-node" data-gate-state="PASS" data-error="Archive does not match metadata" data-reason="Архив должен совпасть с описанием в полученном JSON." data-bundle-lines="194"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Проверить архив</strong><small>архив → имя, размер и SHA256 из JSON</small></div></li>
+    <li id="bundle-check-7" class="flow-node" data-gate-state="PASS" data-error="Unexpected candidate crates SRC_URI" data-reason="Подмена допустимого URL прежним источником меняет то, что скачает Portage." data-bundle-lines="195–198"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Проверить SRC_URI</strong><small>ebuild → разрешённый источник crates</small></div></li>
+    <li id="bundle-check-8" class="flow-node" data-gate-state="PASS" data-error="Candidate GIT_CRATES disagrees with metadata" data-reason="Списки в ebuild и JSON должны совпасть." data-bundle-lines="199–200"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Сверить GIT_CRATES</strong><small>ebuild → git_crates в JSON</small></div></li>
+    <li id="bundle-check-9" class="flow-node" data-gate-state="PASS" data-error="Manifest size or digest fields are invalid" data-reason="У Portage должна быть верная запись для этого архива." data-bundle-lines="201"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Сверить архив с Manifest кандидата</strong><small>архив → размер, BLAKE2B и SHA512 в DIST</small></div></li>
+    <li id="bundle-check-10" class="flow-node" data-gate-state="PASS" data-error="Existing Manifest distfile changed: zed-1.27.0.tar.gz" data-reason="Удаление строки нарушает требования к уже имеющимся distfiles." data-bundle-lines="202–203"><span class="lesson-status" data-status="PASS">PASS</span><div><strong>Сохранить исходные DIST-записи</strong><small>исходный Manifest → Manifest кандидата</small></div></li>
+    </ol>
+    <div class="release-result" data-lab-result role="status">
+      <strong data-bundle-status>PASS · код 0</strong>
+      <code data-bundle-message>Distribution bundle: OK</code>
+      <p data-bundle-reason>Все десять проверок пройдены.</p>
+      <a data-bundle-jump hidden>Перейти к проверке</a>
+    </div>
+  </div>
+  <figcaption>На первой ошибке цепочка обрывается. Соответствующие строки подсвечиваются в <a href="#bundle-order">исходнике</a>.</figcaption>
+</figure>
+
+Схема метаданных проверяет набор ключей и типы, идентичность версии, поля
+архива, описание генератора, записи Git crates и лицензий. Только после
+чтения и проверки схемы вычисленный хеш JSON сравнивается с output Job 1.
+Архив сверяется по имени, размеру и SHA256. Проверка `SRC_URI` требует
+ожидаемые записи источника Zed и архива оверлея и отклоняет прежний источник
+crates. Затем проверяются список `GIT_CRATES`, запись архива в Manifest и
+сохранность исходных DIST-записей.
+
+{% capture bundle_schema %}{% raw %}def validate_metadata(data: object, version: str) -> dict:
+    archive_name, _ = names(version)
+    keys = {'schema_version', 'zed_version', 'upstream_tag', 'upstream_commit',
+            'source_sha256', 'cargo_lock_sha256', 'generator', 'archive', 'git_crates', 'licenses'}
+    if not isinstance(data, dict) or set(data) != keys:
+        raise ValueError('Metadata fields do not match schema')
+    if type(data['schema_version']) is not int or data['schema_version'] != 1:
+        raise ValueError('Unsupported metadata schema version')
+    if data['zed_version'] != version or data['upstream_tag'] != f'v{version}':
+        raise ValueError('Metadata release identity mismatch')
+    for key, pattern in (('upstream_commit', SHA1), ('source_sha256', SHA256), ('cargo_lock_sha256', SHA256)):
+        if not isinstance(data[key], str) or not pattern.fullmatch(data[key]):
+            raise ValueError(f'Invalid {key}')
+    if data['generator'] != {'name': 'pycargoebuild', 'version': '0.16.0'}:
+        raise ValueError('Unsupported generator')
+    archive = data['archive']
+    if (not isinstance(archive, dict) or set(archive) != {'filename', 'size', 'sha256'} or
+        archive['filename'] != archive_name or type(archive['size']) is not int or archive['size'] <= 0 or
+        not isinstance(archive['sha256'], str) or not SHA256.fullmatch(archive['sha256'])):
+        raise ValueError('Invalid archive metadata'){% endraw %}{% endcapture %}
+
+<div id="bundle-schema" markdown="1">
+
+{% include source-preview.html source=bundle_schema label="Схема и идентичность метаданных · строки 51–70" path="scripts/crates_distribution.py" revision=job2_script_revision start=51 comment="#" %}
+
+</div>
+{% capture bundle_archive %}{% raw %}def validate_archive(data: dict, archive: Path) -> None:
+    regular(archive)
+    if archive.name != data['archive']['filename'] or archive.stat().st_size != data['archive']['size'] or sha256(archive) != data['archive']['sha256']:
+        raise ValueError('Archive does not match metadata'){% endraw %}{% endcapture %}
+
+<div id="bundle-archive" markdown="1">
+
+{% include source-preview.html source=bundle_archive label="Сверка архива с метаданными · строки 121–124" path="scripts/crates_distribution.py" revision=job2_script_revision start=121 comment="#" %}
+
+</div>
+{% capture bundle_uri %}{% raw %}def validate_uri(text: str, *, allow_legacy: bool) -> None:
+    assignments = re.findall(r'^\s*SRC_URI\s*\+?=', text, re.MULTILINE)
+    blocks = re.findall(r'^SRC_URI="([^\"]*)"', text, re.MULTILINE)
+    if len(assignments) != 1 or len(blocks) != 1:
+        raise ValueError('Expected exactly one simple SRC_URI assignment')
+    lines = [line.strip() for line in blocks[0].splitlines()]
+    if lines.count(SOURCE_URI) != 1:
+        raise ValueError('Upstream source SRC_URI mismatch')
+    legacy, migrated = text.count(LEGACY_URI), text.count(OVERLAY_URI)
+    allowed = ((1, 0), (0, 1)) if allow_legacy else ((0, 1),)
+    if (legacy, migrated) not in allowed:
+        raise ValueError('Unexpected candidate crates SRC_URI')
+    expected = LEGACY_URI if legacy else OVERLAY_URI
+    if lines.count(expected) != 1:
+        raise ValueError('Candidate crates URL is not an SRC_URI entry'){% endraw %}{% endcapture %}
+
+<div id="bundle-uri" markdown="1">
+
+{% include source-preview.html source=bundle_uri label="Проверка SRC_URI · строки 138–152" path="scripts/crates_distribution.py" revision=job2_script_revision start=138 comment="#" %}
+
+</div>
+{% capture bundle_manifest %}{% raw %}def verify_manifest(archive: Path, manifest: Path) -> None:
+    records = [line.split() for line in manifest.read_text().splitlines()
+               if line.startswith(f'DIST {archive.name} ')]
+    if len(records) != 1:
+        raise ValueError('Manifest must contain exactly one generated archive record')
+    record = records[0]
+    if len(record) != 7 or int(record[2]) != archive.stat().st_size:
+        raise ValueError('Manifest size or digest fields are invalid')
+    checks = dict(zip(record[3::2], record[4::2]))
+    if set(checks) != {'BLAKE2B', 'SHA512'}:
+        raise ValueError('Manifest must contain BLAKE2B and SHA512 digests')
+    for name, expected in checks.items():
+        if digest(archive, name.lower()) != expected.lower():
+            raise ValueError(f'Manifest {name} mismatch')
+    print('Generated archive Manifest digests: OK'){% endraw %}{% endcapture %}
+
+<div id="bundle-manifest" markdown="1">
+
+{% include source-preview.html source=bundle_manifest label="Значения из Manifest кандидата · строки 53–67" path="scripts/inspect_zed_archive.py" revision=job2_script_revision start=53 comment="#" %}
+
+</div>
+{% capture bundle_cli %}{% raw %}        elif args.action == 'bundle':
+            validate_bundle(Path(args.bundle), Path(args.handoff), args.base_commit,
+                            Path(args.base_manifest), args.metadata_sha256)
+        else:
+            preserve_manifest(args.before, args.after)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, snapshot.CargoSnapshotError, release_handoff.HandoffError) as error:
+        print(f'Distribution validation failed: {error}', file=sys.stderr)
+        return 1
+    print(f'Distribution {args.action}: OK')
+    return 0{% endraw %}{% endcapture %}
+
+<div id="bundle-cli" markdown="1">
+
+{% include source-preview.html source=bundle_cli label="Вывод CLI и коды возврата · строки 235–244" path="scripts/crates_distribution.py" revision=job2_script_revision start=235 comment="#" %}
+
+</div>
+
+Job 2 проверяет конкретные связи между полученными файлами. Скачивание
+исходников, проверка upstream Git-дерева и полного снимка `Cargo.lock` против
+исходников, а также проверка разрешения зависимостей Portage относятся к Job 1.
+Компиляции Zed здесь нет. Проверка формата `upstream_commit` и хешей в JSON
+сама по себе не подтверждает подлинность исходников.
+
+### 2.8.9. Зачем столько разных контрольных сумм? {#handoff-integrity}
+
+<figure class="figure lesson-figure integrity-map" aria-labelledby="integrity-map-title">
+  <h4 id="integrity-map-title">Два пути сверки одного архива</h4>
+  <div class="integrity-branches">
+    <div>
+      <div class="flow-node"><strong>Job 1 output</strong><small>Ожидаемый SHA256 метаданных</small></div>
+      <p class="release-edge"><span aria-hidden="true">↓</span> SHA256 файла</p>
+      <div class="flow-node"><strong>JSON метаданных</strong><small>Имя, размер и SHA256 архива</small></div>
+      <p class="release-edge"><span aria-hidden="true">↓</span> Имя, размер, SHA256</p>
+    </div>
+    <div>
+      <div class="flow-node"><strong>Оригинальный Manifest</strong><small>Из checkout на коммите запуска</small></div>
+      <p class="release-edge"><span aria-hidden="true">↓</span> Сохранение DIST-строк</p>
+      <div class="flow-node"><strong>Manifest кандидата</strong><small>Запись DIST для нового архива</small></div>
+      <p class="release-edge"><span aria-hidden="true">↓</span> Размер, BLAKE2B, SHA512</p>
+    </div>
+  </div>
+  <div class="flow-node release-boundary"><strong>Один архив crates</strong></div>
+</figure>
+
+Ожидаемый SHA256 идёт отдельно от скачанного JSON. Если заменить архив
+вместе с его JSON, но оставить output прежним, сверка обнаружит изменившийся
+хеш JSON. Сверка с JSON проверяет комплект distribution, а сверка с Manifest
+подтверждает, что файл совпадает с описанием, по которому его получит Portage.
+
+Хеши позволяют проверить совпадение данных с ожидаемыми значениями.
+Подлинность требует доверия к происхождению данных. Например, её можно
+подтвердить цифровой подписью, если известен доверенный публичный ключ. Здесь и ожидаемый SHA256, и комплект
+файлов готовит Job 1. Если скомпрометирован сам Job 1, одного такого output
+недостаточно для независимого подтверждения подлинности.
+
+{% capture manifest_preserve %}{% raw %}def manifest_records(path: Path) -> dict[str, str]:
+    records: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != 'DIST' or parts[1] in records:
+            raise ValueError('Malformed or duplicate Manifest entry')
+        records[parts[1]] = line
+    return records
+
+
+def preserve_manifest(before: Path, after: Path) -> None:
+    old, new = manifest_records(before), manifest_records(after)
+    for name, line in old.items():
+        if new.get(name) != line:
+            raise ValueError(f'Existing Manifest distfile changed: {name}'){% endraw %}{% endcapture %}
+
+<div id="manifest-preserve" markdown="1">
+
+{% include source-preview.html source=manifest_preserve label="Сохранение DIST-записей · строки 165–179" path="scripts/crates_distribution.py" revision=job2_script_revision start=165 comment="#" open=true %}
+
+</div>
+
+Оригинальный Manifest берётся из закреплённого checkout, чтобы кандидат не
+определял собственный эталон. `preserve_manifest()` находит запись по имени
+distfile и сравнивает **всю строку**. Старые записи нужны версиям ebuild,
+которые остаются в overlay.
+
+<figure class="figure lesson-figure" data-handoff-manifest aria-labelledby="handoff-manifest-title">
+  <h4 id="handoff-manifest-title">Какие DIST-записи можно менять?</h4>
+  <div class="lab-controls" data-lab-controls hidden>
+    <label>Изменение кандидата <select><option value="add">Добавить запись</option><option value="edit">Изменить существующую запись</option><option value="remove">Удалить существующую запись</option></select></label>
+  </div>
+  <div class="manifest-pair">
+    <div><strong>Исходный Manifest</strong><pre><code><span data-manifest-original>DIST zed-1.27.0.tar.gz 120 BLAKE2B &lt;A&gt; SHA512 &lt;B&gt;</span>
+DIST zed-1.27.1.tar.gz 125 BLAKE2B &lt;C&gt; SHA512 &lt;D&gt;</code></pre></div>
+    <div><strong>Manifest кандидата</strong><pre><code><span data-manifest-copy>DIST zed-1.27.0.tar.gz <b data-manifest-size>120</b> BLAKE2B &lt;A&gt; SHA512 &lt;B&gt;</span><span data-manifest-absent class="release-change" hidden>− Запись zed-1.27.0.tar.gz удалена</span>
+DIST zed-1.27.1.tar.gz 125 BLAKE2B &lt;C&gt; SHA512 &lt;D&gt;
+<span data-manifest-added class="release-add">DIST zed-1.28.1.tar.gz 130 BLAKE2B &lt;E&gt; SHA512 &lt;F&gt;</span></code></pre></div>
+  </div>
+  <p data-lab-result role="status">PASS · исходные строки сохранены. Появилась новая запись.</p>
+  <figcaption>Имена, размеры и обозначения хешей &lt;A&gt;–&lt;F&gt; служат только иллюстрацией.</figcaption>
+</figure>
+
+Добавлять записи можно. Удаление любой исходной строки и изменение хотя бы
+одного её символа приводят к отказу. Сохранение старых записей само по себе
+ничего не говорит о правильности всех новых.
+
+### 2.8.10. Результат второго job. {#handoff-final}
+
+{% capture job2_echo %}{% raw %}          echo "Release handoff and distribution boundaries: OK"{% endraw %}{% endcapture %}
+
+<div id="job2-echo" markdown="1">
+
+{% include source-preview.html source=job2_echo label="Сообщение в журнале · строка 147" path=workflow_path revision=reviewed_revision start=147 comment="#" open=true %}
+
+</div>
+
+`echo` пишет обычную строку в журнал. Её появление означает, что Bash дошёл
+до этой команды. GitHub Actions определяет успех по результату шага и
+остальных операций job. Если один из валидаторов вернёт ошибку, до строки
+успеха выполнение не дойдёт.
+
+<figure class="figure lesson-figure" data-handoff-final aria-labelledby="handoff-final-title">
+  <h4 id="handoff-final-title">От кода выхода до условия публикации</h4>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label><input type="checkbox" data-first-ok checked> Первый валидатор успешен</label>
+    <label><input type="checkbox" data-second-ok checked> Второй валидатор успешен</label>
+  </div>
+  <ol class="lesson-flow gate-flow release-gates release-final-flow" role="list">
+    <li class="flow-node" data-gate-state="PASS"><strong>Проверка handoff</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="PASS"><strong>Проверка distribution</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    <li class="flow-node" data-gate-state="ВЫПОЛНЕН"><strong>Итоговый <code>echo</code></strong><span class="lesson-status" data-status="ВЫПОЛНЕН">ВЫПОЛНЕН</span></li>
+    <li class="flow-node" data-gate-state="SUCCESS"><strong>Статус Job 2</strong><span class="lesson-status" data-status="SUCCESS">SUCCESS</span></li>
+    <li class="flow-node" data-gate-state="PASS"><strong>Условие Job 3</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+  </ol>
+  <p data-lab-result role="status">Job 2: success. Условие успеха в Job 3 выполнено.</p>
+  <figcaption>Модель предполагает успешные checkout, скачивания и остальные операции runner.</figcaption>
+</figure>
+
+{% capture job3_result %}{% raw %}    needs: [check, validate-release-handoff]
+    if: >-
+      needs.check.outputs.handoff_ready == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.independent_validation) &&
+      needs['validate-release-handoff'].result == 'success' &&
+      github.ref == 'refs/heads/main'{% endraw %}{% endcapture %}
+
+<div id="job3-result" markdown="1">
+
+{% include source-preview.html source=job3_result label="Условия Job 3 · строки 153–158" path=workflow_path revision=reviewed_revision start=153 comment="#" %}
+
+</div>
+
+`needs['validate-release-handoff'].result` даёт Job 3 статус Job 2. Успех
+выполняет одно из условий допуска. По-прежнему нужны успешный Job 1, готовый
+handoff, production-режим и ветка `main`. Job 2 завершает проверку статусом.
+За файлами Job 3 сам обращается к артефактам Job 1.
+
+Строки 149–150 подводят к публикации. В этом workflow до job с правами на
+запись доходят запуски из `main` с успешно проверенным handoff.
+
+{% capture job3_start %}{% raw %}  # PR создаётся только после успешной проверки handoff и при запуске из main;
+  # остальные события не доходят до job с правами на запись.{% endraw %}{% endcapture %}
+
+<div id="job3-start" markdown="1">
+
+{% include source-preview.html source=job3_start label="Переход к Job 3 · строки 149–150" path=workflow_path revision=reviewed_revision start=149 comment="#" %}
+
+</div>

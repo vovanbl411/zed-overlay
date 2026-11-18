@@ -612,6 +612,208 @@ function initExpression(figure) {
   controls.hidden = false;
 }
 
+function traceReleaseGates(figure, count, failure) {
+  const states = Array.from({length: count}, (_, index) => {
+    if (failure === -1 || index < failure) return 'PASS';
+    return index === failure ? 'FAIL' : 'SKIP';
+  });
+  renderReleaseGates(figure, states);
+}
+
+function renderReleaseGates(figure, states) {
+  figure.querySelectorAll('.flow-node[data-gate-state]').forEach((node, index) => {
+    const status = states[index];
+    node.dataset.gateState = status;
+    setLessonStatus(node.querySelector('.lesson-status'), status);
+  });
+}
+
+function initHandoffTimeline(figure) {
+  const timeline = figure.querySelector('.needs-timeline');
+  const waiting = figure.querySelector('[data-wait]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (dependency) => {
+    timeline.dataset.dependency = dependency;
+    waiting.hidden = dependency === 'off';
+    result.textContent = dependency === 'on'
+      ? 'Job 2 получает допуск после Job 1, если выполнены остальные условия.'
+      : 'Без зависимости дорожки могут пересекаться: Job 2 может выполняться одновременно с Job 1.';
+  });
+}
+
+function initHandoffAdmission(figure) {
+  const check = figure.querySelector('[data-check-result]');
+  const ready = figure.querySelector('[data-ready]');
+  const manual = figure.querySelector('[data-manual]');
+  const result = figure.querySelector('[data-lab-result]');
+  initToggleLab(figure, () => {
+    const conditions = [check.value === 'success', ready.checked, !manual.checked];
+    const failure = conditions.indexOf(false);
+    traceReleaseGates(figure, conditions.length, failure);
+    const reasons = [
+      `Job 1 завершился со статусом ${check.value}.`,
+      'Handoff не готов.',
+      'Включён ручной режим независимой проверки.',
+    ];
+    result.textContent = failure === -1 ? 'RUN · Job 2 допущен к запуску.' : 'SKIP · ' + reasons[failure];
+  });
+}
+
+function initHandoffRevision(figure) {
+  const advances = figure.querySelector('[data-main-advance]');
+  const ref = figure.querySelector('[data-checkout-ref]');
+  const graph = figure.querySelector('.commit-graph');
+  const commitC = figure.querySelector('[data-commit-c]');
+  const markerB = figure.querySelector('[data-main-b]');
+  const target = figure.querySelector('[data-job2-target]');
+  const result = figure.querySelector('[data-lab-result]');
+  initToggleLab(figure, () => {
+    const branch = advances.checked ? 'C' : 'B';
+    const selected = ref.value === 'sha' ? 'B' : branch;
+    graph.dataset.job2At = selected;
+    commitC.hidden = !advances.checked;
+    markerB.hidden = advances.checked;
+    target.textContent = '→ ' + selected;
+    result.textContent = selected === 'B'
+      ? 'Оба runner используют B.'
+      : 'Ревизии разошлись: Job 1 использует B, Job 2 выбирает C.';
+  });
+}
+
+const handoffBashExamples = {
+  e: {
+    code: 'false\necho "Продолжаем"',
+    on: 'Код 1 · Bash прерывает скрипт после false, echo пропущен.',
+    off: 'Код 0 · Выполняется echo и печатает «Продолжаем».',
+  },
+  u: {
+    code: 'echo "$UNDEFINED_VARIABLE"',
+    on: 'Ненулевой код · Bash сообщает о незаданной переменной. echo не выполняется.',
+    off: 'Код 0 · echo печатает пустую строку.',
+  },
+  pipefail: {
+    code: 'false | cat',
+    on: 'Код 1 · Его возвращает false, хотя cat завершился со статусом 0.',
+    off: 'Код 0 · Статус конвейера равен статусу cat.',
+  },
+};
+
+function initHandoffBash(figure) {
+  const option = figure.querySelector('[data-bash-option]');
+  const enabled = figure.querySelector('[data-bash-enabled]');
+  const code = figure.querySelector('[data-bash-code]');
+  const result = figure.querySelector('[data-lab-result]');
+  initToggleLab(figure, () => {
+    const example = handoffBashExamples[option.value];
+    code.textContent = example.code;
+    result.textContent = enabled.checked ? example.on : example.off;
+  });
+}
+
+function initHandoffJson(figure) {
+  const rows = [...figure.querySelectorAll('[data-json-field]')];
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (field) => {
+    rows.forEach((row) => row.classList.toggle('is-selected', row.dataset.jsonField === field));
+    result.textContent = rows.find((row) => row.dataset.jsonField === field).dataset.purpose;
+  });
+}
+
+const handoffLayoutErrors = {
+  extra: 'Handoff artifact contains unexpected file: unexpected.txt',
+  symlink: 'Handoff artifact contains symlink: app-editors/zed/Manifest',
+  missing: 'Handoff artifact is missing an expected file',
+  commit: 'release.json base_commit does not match the expected commit',
+};
+
+function initHandoffLayout(figure) {
+  const extra = figure.querySelector('[data-handoff-extra]');
+  const symlink = figure.querySelector('[data-handoff-symlink]');
+  const patch = figure.querySelector('[data-handoff-patch]');
+  const base = figure.querySelector('[data-handoff-base]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (scenario) => {
+    extra.hidden = scenario !== 'extra';
+    symlink.hidden = scenario !== 'symlink';
+    patch.hidden = scenario === 'missing';
+    base.classList.toggle('release-change', scenario === 'commit');
+    base.textContent = scenario === 'commit' ? base.dataset.mismatch : base.dataset.expected;
+    result.dataset.gateState = scenario === 'valid' ? 'PASS' : 'FAIL';
+    result.textContent = scenario === 'valid'
+      ? 'PASS · код 0. Структура и базовый коммит совпадают.'
+      : 'FAIL · код 1. Release handoff error: ' + handoffLayoutErrors[scenario];
+  });
+}
+
+function initHandoffBundle(figure) {
+  const rows = [...figure.querySelectorAll('[data-bundle-lines]')];
+  const source = document.querySelectorAll('#bundle-order [data-line]');
+  const result = figure.querySelector('[data-lab-result]');
+  const status = figure.querySelector('[data-bundle-status]');
+  const message = figure.querySelector('[data-bundle-message]');
+  const reason = figure.querySelector('[data-bundle-reason]');
+  const jump = figure.querySelector('[data-bundle-jump]');
+  initSelectLab(figure, (scenario) => {
+    const failure = Number(scenario);
+    traceReleaseGates(figure, rows.length, failure);
+    const failed = rows[failure];
+    const [start, end = start] = failed?.dataset.bundleLines.split('–').map(Number) ?? [];
+    source.forEach((line) => {
+      const number = Number(line.dataset.line);
+      line.classList.toggle('release-source-focus', number >= start && number <= end);
+    });
+    result.dataset.gateState = failed ? 'FAIL' : 'PASS';
+    status.textContent = failed ? 'FAIL · код 1' : 'PASS · код 0';
+    message.textContent = failed ? 'Distribution validation failed: ' + failed.dataset.error : 'Distribution bundle: OK';
+    reason.textContent = failed ? failed.dataset.reason : 'Все десять проверок пройдены.';
+    jump.hidden = !failed;
+    if (failed) {
+      jump.href = '#' + failed.id;
+      jump.textContent = 'К проверке ' + (failure + 1);
+    }
+  });
+}
+
+function initHandoffManifest(figure) {
+  const original = figure.querySelector('[data-manifest-original]');
+  const candidate = figure.querySelector('[data-manifest-copy]');
+  const size = figure.querySelector('[data-manifest-size]');
+  const absent = figure.querySelector('[data-manifest-absent]');
+  const added = figure.querySelector('[data-manifest-added]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (scenario) => {
+    candidate.hidden = scenario === 'remove';
+    absent.hidden = scenario !== 'remove';
+    added.hidden = scenario !== 'add';
+    original.classList.toggle('release-change', scenario !== 'add');
+    candidate.classList.toggle('release-change', scenario === 'edit');
+    size.textContent = scenario === 'edit' ? '121' : '120';
+    result.textContent = scenario === 'add'
+      ? 'PASS · исходные строки сохранены. Появилась новая запись.'
+      : 'FAIL · Existing Manifest distfile changed: zed-1.27.0.tar.gz';
+  });
+}
+
+function initHandoffFinal(figure) {
+  const first = figure.querySelector('[data-first-ok]');
+  const second = figure.querySelector('[data-second-ok]');
+  const result = figure.querySelector('[data-lab-result]');
+  initToggleLab(figure, () => {
+    const ok = first.checked && second.checked;
+    second.disabled = !first.checked;
+    renderReleaseGates(figure, [
+      first.checked ? 'PASS' : 'FAIL',
+      first.checked ? (second.checked ? 'PASS' : 'FAIL') : 'SKIP',
+      ok ? 'ВЫПОЛНЕН' : 'SKIP',
+      ok ? 'SUCCESS' : 'FAILURE',
+      ok ? 'PASS' : 'BLOCKED',
+    ]);
+    result.textContent = ok
+      ? 'Job 2: success. Условие успеха в Job 3 выполнено.'
+      : 'Job 2: failure. Job 3 не получает допуск.';
+  });
+}
+
 if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-theme-control]').forEach(initTheme);
   document.querySelectorAll('[data-selector]').forEach(initSelector);
@@ -632,4 +834,13 @@ if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-upload-gates]').forEach(initUploadGates);
   document.querySelectorAll('[data-missing-artifact]').forEach(initMissingArtifact);
   document.querySelectorAll('[data-summary-lab]').forEach(initSummaryLab);
+  document.querySelectorAll('[data-handoff-timeline]').forEach(initHandoffTimeline);
+  document.querySelectorAll('[data-handoff-admission]').forEach(initHandoffAdmission);
+  document.querySelectorAll('[data-handoff-revision]').forEach(initHandoffRevision);
+  document.querySelectorAll('[data-handoff-bash]').forEach(initHandoffBash);
+  document.querySelectorAll('[data-handoff-json]').forEach(initHandoffJson);
+  document.querySelectorAll('[data-handoff-layout]').forEach(initHandoffLayout);
+  document.querySelectorAll('[data-handoff-bundle]').forEach(initHandoffBundle);
+  document.querySelectorAll('[data-handoff-manifest]').forEach(initHandoffManifest);
+  document.querySelectorAll('[data-handoff-final]').forEach(initHandoffFinal);
 }
