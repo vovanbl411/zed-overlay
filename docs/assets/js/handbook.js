@@ -133,6 +133,18 @@ export function simulate(scenario, validationOnly, branch) {
       outcome: mode + ' · публикация недоступна вне main.'
     };
   }
+  const publicationFailures = {
+    'main-drift': 'HEAD свежего checkout отличается от базы handoff.',
+    'release-conflict': 'После применения handoff найден конфликтующий draft release.',
+    'public-error': 'Release опубликован. Проверка публичного скачивания завершилась ошибкой.',
+  };
+  if (Object.hasOwn(publicationFailures, scenario)) {
+    const reason = publicationFailures[scenario];
+    return {
+      jobs: [check, validation, fail(reason)],
+      outcome: mode + ' · ' + reason
+    };
+  }
   if (scenario === 'pr-error') {
     return {
       jobs: [check, validation, fail('Архив опубликован. Проверка git diff --cached --check остановила job до создания ветки.')],
@@ -814,6 +826,261 @@ function initHandoffFinal(figure) {
   });
 }
 
+
+function initPublishAdmission(figure) {
+  const [job1, job2] = figure.querySelectorAll('[data-dependency]');
+  const ready = figure.querySelector('[data-ready]');
+  const validation = figure.querySelector('[data-validation-only]');
+  const ref = figure.querySelector('[data-ref]');
+  const result = figure.querySelector('[data-lab-result]');
+  const lines = document.querySelectorAll('#publish-admission-source [data-line]');
+  initToggleLab(figure, () => {
+    const dependencies = job1.value === 'success' && job2.value === 'success';
+    const conditions = [dependencies, ready.checked, !validation.checked, job2.value === 'success', ref.value === 'main'];
+    const failure = conditions.indexOf(false);
+    traceReleaseGates(figure, conditions.length, failure);
+    const reasons = [
+      `неявная success() отклонила зависимости (Job 1: ${job1.value}, Job 2: ${job2.value}).`,
+      "handoff_ready не равен 'true'.",
+      'ручной запуск в режиме validation-only.',
+      'Job 2 не завершился успешно.',
+      'ref запуска отличается от refs/heads/main.',
+    ];
+    const job2Reached = job2.value !== 'skipped';
+    const hypothesis = (job2Reached && (job1.value !== 'success' || !ready.checked || validation.checked))
+      || (!job2Reached && job1.value === 'success' && ready.checked && !validation.checked)
+      || (validation.checked && ready.checked);
+    result.textContent = (failure === -1
+      ? 'RUN · Job 3 допущен к запуску.'
+      : `SKIP · ${reasons[failure]} Job с правами на запись не запущен.`)
+      + (hypothesis ? ' Гипотетическое сочетание результатов и входов.' : '');
+    lines.forEach((line) => {
+      const index = [153, 155, 156, 157, 158].indexOf(Number(line.dataset.line));
+      if (index >= 0) {
+        line.dataset.publicationEval = failure === -1 || index < failure ? 'PASS' : index === failure ? 'FAIL' : 'SKIP';
+      }
+    });
+  });
+}
+
+function initPublishDrift(figure) {
+  const advances = figure.querySelector('[data-main-advance]');
+  const result = figure.querySelector('[data-lab-result]');
+  const graph = figure.querySelector('.commit-graph');
+  initToggleLab(figure, () => {
+    const head = advances.checked ? 'C' : 'B';
+    graph.dataset.publishAt = head;
+    figure.querySelector('[data-main-b]').hidden = advances.checked;
+    figure.querySelector('[data-main-c]').hidden = !advances.checked;
+    figure.querySelectorAll('[data-head]').forEach((node) => { node.textContent = head; });
+    result.dataset.gateState = advances.checked ? 'FAIL' : 'PASS';
+    result.textContent = advances.checked
+      ? 'FAIL · checkout C отличается от базы B. Применение handoff завершается ошибкой. Публикация пропущена.'
+      : 'PASS · база совпала. Job 3 продолжает применять handoff.';
+  });
+}
+
+const applyFailures = [
+  '', '',
+  'ERROR: fresh main checkout is not clean',
+  'Release handoff error: release.json base_commit does not match the expected commit',
+  'Release handoff error: Candidate ebuild already exists: /workspace/app-editors/zed/zed-1.28.1.ebuild',
+  'Release handoff error: Existing candidate patch differs from handoff: /workspace/app-editors/zed/files/zed-1.28.1-wayland-only.patch',
+];
+
+function initPublishApply(figure) {
+  const oldPatch = figure.querySelector('[data-old-patch]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (value) => {
+    const example = Number(value);
+    const error = applyFailures[example];
+    const reuse = example === 1;
+    const effects = [
+      ['ebuild', 'создан'],
+      ['patch', reuse ? 'переиспользован, байты совпадают' : 'создан'],
+      ['manifest', 'заменён после записи package files'],
+    ];
+    figure.querySelector('[data-old-ebuild]').hidden = example !== 4;
+    figure.querySelector('[data-checkout-manifest]').textContent = example === 2 ? 'локальная правка' : 'исходный';
+    oldPatch.hidden = !reuse && example !== 5;
+    oldPatch.querySelector('span').textContent = reuse ? 'байты совпадают' : 'байты отличаются';
+    traceReleaseGates(figure, 5, error ? example - 2 : -1);
+    effects.forEach(([file, operation]) => {
+      const label = figure.querySelector(`[data-${file}-effect]`);
+      label.textContent = error ? 'записи не было' : operation;
+      label.closest('li').classList.toggle('is-selected', !error && !(file === 'patch' && reuse));
+    });
+    figure.querySelector('[data-apply-outputs]').hidden = Boolean(error);
+    figure.querySelector('[data-patch-created]').textContent = String(!reuse);
+    result.dataset.gateState = error ? 'FAIL' : 'PASS';
+    result.textContent = error
+      ? `FAIL · ${error}. Выходов шага нет.`
+      : 'PASS · handoff применён. Выходы доступны следующим шагам.';
+  });
+}
+
+function initPublishDecision(figure) {
+  const mode = figure.querySelector('[data-mode]');
+  const remote = figure.querySelector('[data-remote]');
+  const result = figure.querySelector('[data-lab-result]');
+  initToggleLab(figure, () => {
+    const reuse = mode.value === 'reuse';
+    const state = remote.selectedIndex;
+    const missing = reuse ? 'Previously published release disappeared before publication' : '';
+    const errors = [
+      missing,
+      '',
+      'Remote asset SHA256 mismatch: zed-1.28.1-overlay-crates.tar.xz',
+      'Conflicting draft release requires manual recovery',
+      missing || 'Conflicting standalone tag or failed tag lookup',
+      'Multiple releases use the requested tag',
+      'Cannot list releases including drafts',
+    ];
+    const error = errors[state];
+    const failure = error ? [1, -1, 2, 1, 1, 1, 0][state] : -1;
+    traceReleaseGates(figure, 4, failure);
+    figure.querySelectorAll('.flow-node strong')[2].textContent = state === 1 || state === 2
+      ? 'Проверить существующий release' : 'Создать draft и опубликовать';
+    result.dataset.gateState = error ? 'FAIL' : 'PASS';
+    result.textContent = error ? `FAIL · Crates release error: ${error}` : state === 1
+      ? 'PASS · проверен и переиспользован существующий release. publication_result=reuse.'
+      : 'PASS · draft создан, проверен и опубликован. publication_result=generation.';
+  });
+}
+
+const raceFailures = [
+  null,
+  [2, 'Asset upload failed: zed-1.28.1-overlay-crates.json HTTP 404', 'Draft может содержать только первый asset — архив.'],
+  [3, 'Remote asset SHA256 mismatch: zed-1.28.1-overlay-crates.tar.xz', 'Может остаться draft с двумя загруженными assets.'],
+  [4, 'Release state changed during draft upload', 'Состояние изменил другой участник. Может остаться draft с assets.'],
+  [4, 'Tag appeared during draft upload', 'Могут остаться draft с assets и конфликтующий тег.'],
+];
+
+const publicFailures = [
+  null,
+  [0, 'Asset download failed: HTTP 404', 'Публичный URL архива вернул 404.'],
+  [3, 'Asset download failed: HTTP 404', 'Публичный URL metadata вернул 404 после проверки архива.'],
+  [1, 'Public asset does not match validated bundle: zed-1.28.1-overlay-crates.tar.xz', 'Размер или SHA256 публичного архива отличается.'],
+  [2, '', 'Гипотеза: скачанный архив совпал с локальным, но проверка записи Manifest вернула ошибку.'],
+];
+
+function initPublishRace(figure) {
+  const race = figure.querySelector('[data-race]');
+  const download = figure.querySelector('[data-public]');
+  const [release, publicChecks] = figure.querySelectorAll('.gate-flow');
+  const result = figure.querySelector('[data-lab-result]');
+  const remote = figure.querySelector('[data-remote-outcome]');
+  initToggleLab(figure, (event) => {
+    const scenario = race.selectedIndex;
+    const failure = raceFailures[scenario];
+    if (event?.target === race) download.selectedIndex = scenario === 5 ? 1 : 0;
+    download.disabled = Boolean(failure) || scenario === 5;
+    const publicFailure = publicFailures[download.selectedIndex];
+    traceReleaseGates(release, 6, failure ? failure[0] : -1);
+    if (failure) renderReleaseGates(publicChecks, Array(6).fill('SKIP'));
+    else traceReleaseGates(publicChecks, 6, publicFailure ? publicFailure[0] : -1);
+    const blocked = failure || publicFailure;
+    result.dataset.gateState = blocked ? 'FAIL' : 'PASS';
+    if (blocked) {
+      const error = blocked[1] ? `Crates release error: ${blocked[1]}. ` : '';
+      const context = publicFailure && !failure ? publicFailure[2] + ' ' : '';
+      result.textContent = `FAIL · ${context}${error}Выход publication_result недоступен. Шаг PR пропущен.`;
+    } else {
+      result.textContent = 'PASS · release опубликован, публичные файлы проверены. publication_result=generation. Шаг PR допущен.';
+    }
+    remote.textContent = failure ? failure[2] : publicFailure
+      ? 'Release уже переведён в опубликованное состояние. Публичная проверка не завершилась успешно.'
+      : 'Публичный release с двумя проверенными assets.';
+  });
+}
+
+const stagedFailures = [
+  null, null,
+  [1, 'ERROR: staged paths do not match the release handoff allowlist', '+ metadata/layout.conf · лишний staged-путь'],
+  [1, 'ERROR: staged paths do not match the release handoff allowlist', '− app-editors/zed/Manifest · нет staged-изменения'],
+  [2, 'ERROR: unstaged tracked changes remain after handoff apply', ' M metadata/layout.conf · осталось в рабочем дереве'],
+  [3, 'ERROR: unexpected untracked files remain after handoff apply', '?? notes.txt · осталось в рабочем дереве'],
+  [0, 'git diff --cached --check вернул ненулевой код', 'zed-1.28.1.ebuild · +SLOT="0"␠ (␠ обозначает пробел в конце строки)'],
+];
+
+function initPublishStaged(figure) {
+  const detail = figure.querySelector('[data-staged-detail]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (value) => {
+    const example = Number(value);
+    const failure = stagedFailures[example];
+    const expected = [true, true, example !== 1, false];
+    const actual = [example !== 3, true, example !== 1, example === 2];
+    figure.querySelectorAll('[data-expected]').forEach((file, i) => {
+      file.hidden = !expected[i];
+      file.classList.toggle('release-change', expected[i] && !actual[i]);
+    });
+    figure.querySelectorAll('[data-actual]').forEach((file, i) => {
+      file.hidden = !actual[i];
+      file.classList.toggle('release-change', actual[i] && (!expected[i] || (example === 6 && i === 1)));
+    });
+    detail.hidden = !failure;
+    detail.textContent = failure ? failure[2] : '';
+    traceReleaseGates(figure, 5, failure ? failure[0] : -1);
+    result.dataset.gateState = failure ? 'FAIL' : 'PASS';
+    result.textContent = failure
+      ? `FAIL · ${failure[1]}. До поиска PR выполнение не дошло.`
+      : 'PASS · staged diff разрешён. Можно искать существующий PR.';
+  });
+}
+
+function initPublishBranch(figure) {
+  const routes = ['existing', 'absent', 'exists', 'unknown'];
+  const outcomes = [
+    'PASS · URL открытого PR записан. Создание ветки и PR пропущено.',
+    'HTTP 404 · можно перейти к созданию ветки.',
+    'FAIL · ERROR: remote automation branch exists without an open PR: automation/zed-v1.28.1',
+    'FAIL · ERROR: could not determine remote branch state (HTTP 503)',
+  ];
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (value) => {
+    const example = Number(value);
+    figure.querySelectorAll('[data-branch-route]').forEach((node) => {
+      const route = node.dataset.branchRoute;
+      const active = route === routes[example] || (example > 0 && route === 'lookup');
+      node.classList.toggle('is-selected', active);
+    });
+    result.dataset.gateState = example >= 2 ? 'FAIL' : 'PASS';
+    result.textContent = outcomes[example];
+  });
+}
+
+const publicationMap = [
+  ['current', false, 'Job 3 пропущен.', 'Для нового кандидата не созданы.', 'Без изменений для этого запуска.', 'Новая ветка не создана.', 'Новый PR не требуется.'],
+  ['new', true, 'Job 3 пропущен.', 'Публикационные наборы не созданы.', 'Без изменений для этого запуска.', 'Новая ветка не создана.', 'Шаг PR пропущен.'],
+  ['new', false, 'Кандидат применён и закоммичен в automation-ветку.', 'Оба job скачали два набора.', 'Новый release опубликован. Оба публичных файла проверены.', 'Создана automation/zed-v1.28.1.', 'Открыт новый Draft PR в main.'],
+  ['reuse', false, 'Кандидат применён и закоммичен в automation-ветку.', 'Оба job скачали два набора.', 'Существующий release переиспользован, публичная проверка прошла.', 'Создана automation/zed-v1.28.1.', 'Открыт новый Draft PR в main.'],
+  ['handoff-error', false, 'Job 3 пропущен.', 'Загружены Job 1, скачаны Job 2.', 'Новой публикации не было.', 'Новая ветка не создана.', 'Шаг PR пропущен.'],
+  ['main-drift', false, 'Checkout получен, handoff не применён.', 'Оба job скачали два набора.', 'Новой публикации не было.', 'Новая ветка не создана.', 'Шаг PR пропущен.'],
+  ['release-conflict', false, 'Кандидат применён, commit не создан.', 'Оба job скачали два набора.', 'На GitHub остаётся конфликтующий draft.', 'Новая ветка не создана.', 'Шаг PR пропущен.'],
+  ['public-error', false, 'Кандидат применён, commit не создан.', 'Оба job скачали два набора.', 'Release опубликован, публичная проверка завершилась ошибкой.', 'Новая ветка не создана.', 'Шаг PR пропущен.'],
+  ['existing', false, 'Кандидат применён и индекс проверен. Нового commit нет.', 'Оба job скачали два набора.', 'Существующий release переиспользован, публичная проверка прошла.', 'Существующая ветка PR. Нового push нет.', 'Найден открытый PR, записан его URL.'],
+  ['pr-error', false, 'Кандидат применён. Проверка staged diff завершилась ошибкой.', 'Оба job скачали два набора.', 'Новый release опубликован. Оба публичных файла проверены.', 'Новая ветка не создана.', 'Новый PR не открыт.'],
+];
+
+function initPublishMap(figure) {
+  const states = figure.querySelectorAll('[data-map-state]');
+  const reasons = figure.querySelectorAll('[data-map-reason]');
+  const result = figure.querySelector('[data-lab-result]');
+  initSelectLab(figure, (value) => {
+    const [scenario, validation, ...objects] = publicationMap[Number(value)];
+    const { jobs, outcome } = simulate(scenario, validation, 'main');
+    renderReleaseGates(figure, jobs.map((job) => job.status));
+    jobs.forEach((job, index) => { reasons[index].textContent = job.reason; });
+    const manual = jobs[2].status === 'PASS'
+      ? (scenario === 'existing' ? 'Действует обычный процесс ревью существующего PR.' : 'Ожидает проверки владельцем.')
+      : 'В этом запуске новый PR на приёмку не передан.';
+    [...objects, manual].forEach((state, index) => { states[index].textContent = state; });
+    result.dataset.gateState = jobs[2].status;
+    result.textContent = outcome;
+  });
+}
+
 if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-theme-control]').forEach(initTheme);
   document.querySelectorAll('[data-selector]').forEach(initSelector);
@@ -843,4 +1110,12 @@ if (typeof document !== 'undefined') {
   document.querySelectorAll('[data-handoff-bundle]').forEach(initHandoffBundle);
   document.querySelectorAll('[data-handoff-manifest]').forEach(initHandoffManifest);
   document.querySelectorAll('[data-handoff-final]').forEach(initHandoffFinal);
+  document.querySelectorAll('[data-publish-admission]').forEach(initPublishAdmission);
+  document.querySelectorAll('[data-publish-drift]').forEach(initPublishDrift);
+  document.querySelectorAll('[data-publish-apply]').forEach(initPublishApply);
+  document.querySelectorAll('[data-publish-decision]').forEach(initPublishDecision);
+  document.querySelectorAll('[data-publish-race]').forEach(initPublishRace);
+  document.querySelectorAll('[data-publish-staged]').forEach(initPublishStaged);
+  document.querySelectorAll('[data-publish-branch]').forEach(initPublishBranch);
+  document.querySelectorAll('[data-publish-map]').forEach(initPublishMap);
 }

@@ -1,7 +1,7 @@
 ---
 layout: handbook
 title: Release watcher — разбор YAML
-description: "Как workflow готовит кандидат, передаёт артефакты и проверяет их перед публикацией."
+description: "Как workflow готовит кандидат, проверяет артефакты, публикует crates release и открывает Draft PR."
 chapter: 1
 eyebrow: Глава 01 / Продолжение
 permalink: /internals/01-release-watcher/yaml/
@@ -14,6 +14,7 @@ sections:
   - { id: job-steps, label: "2.6. Job 1 — первые шаги выполнения" }
   - { id: job-results, label: "2.7. Job 1 — результаты и отчёт" }
   - { id: job-validate-handoff, label: "2.8. Job 2 — проверка handoff" }
+  - { id: job-publish, label: "2.9. Job 3 — Publish Draft release PR" }
 ---
 
 {% assign reviewed_revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -3032,32 +3033,1171 @@ DIST zed-1.27.1.tar.gz 125 BLAKE2B &lt;C&gt; SHA512 &lt;D&gt;
   <figcaption>Модель предполагает успешные checkout, скачивания и остальные операции runner.</figcaption>
 </figure>
 
-{% capture job3_result %}{% raw %}    needs: [check, validate-release-handoff]
+<div id="job3-result" markdown="1">
+
+`needs['validate-release-handoff'].result` даёт Job 3 статус Job 2. Job 2
+завершает проверку статусом. За файлами Job 3 сам обращается к артефактам Job 1.
+
+</div>
+
+<p id="job3-start">Строки 149–158 подводят к <a href="#publish-admission">условиям допуска Job 3</a>.</p>
+
+{% assign publish_revision = '06f0ca0c39ca10a88ecf8519fc0b03945a14f98c' %}
+
+## 2.9. Job 3 — Publish Draft release PR {#job-publish}
+
+Job 3 скачивает проверенные файлы, применяет их к свежему checkout и проверяет результат.
+Затем он публикует или переиспользует crates release, проверяет публичные загрузки
+и только после этого переходит к Draft PR. Ниже сценарии используют условный
+кандидат Zed 1.28.1. Исторический пример отмечен отдельно.
+
+[Применение handoff](#publish-block-a) · [Crates release](#publish-block-b) ·
+[Draft PR](#publish-block-c) · [Карта выполнения](#publish-execution-map)
+
+### Блок A. Допуск и применение handoff {#publish-block-a}
+
+#### 2.9.1. Когда разрешается публикация? {#publish-admission}
+
+<div id="publish-admission-source" markdown="1">
+
+{% capture publish_admission_149 %}{% raw %}  # PR создаётся только после успешной проверки handoff и при запуске из main;
+  # остальные события не доходят до job с правами на запись.
+  publish-draft-release-pr:
+    name: Publish Draft release PR
+    needs: [check, validate-release-handoff]
     if: >-
       needs.check.outputs.handoff_ready == 'true' &&
       !(github.event_name == 'workflow_dispatch' && inputs.independent_validation) &&
       needs['validate-release-handoff'].result == 'success' &&
       github.ref == 'refs/heads/main'{% endraw %}{% endcapture %}
 
-<div id="job3-result" markdown="1">
-
-{% include source-preview.html source=job3_result label="Условия Job 3 · строки 153–158" path=workflow_path revision=reviewed_revision start=153 comment="#" %}
+{% include source-preview.html source=publish_admission_149 label="Объявление Job 3 и условия допуска · строки 149–158" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=149 comment="#" open=true %}
 
 </div>
 
-`needs['validate-release-handoff'].result` даёт Job 3 статус Job 2. Успех
-выполняет одно из условий допуска. По-прежнему нужны успешный Job 1, готовый
-handoff, production-режим и ветка `main`. Job 2 завершает проверку статусом.
-За файлами Job 3 сам обращается к артефактам Job 1.
+У Job 2 был один предшественник, `needs: check`. Здесь квадратные скобки
+задают YAML-список из двух заданий. В контексте `needs` доступны их выходы
+(`outputs`) и итоговые статусы (`result`). В обращении
+`needs['validate-release-handoff']` имя с дефисами передано строкой в скобках.
+`github.ref` содержит полный ref запуска. Ветка `main` имеет ref
+`refs/heads/main`, у тега префикс `refs/tags/`.
 
-Строки 149–150 подводят к публикации. В этом workflow до job с правами на
-запись доходят запуски из `main` с успешно проверенным handoff.
+GitHub Actions неявно добавляет проверку `success()`, когда в `if` нет
+функции проверки статуса. Здесь она требует успеха обеих зависимостей ещё до
+явных условий. Сравнение `result == 'success'` отдельно выражает требование
+к Job 2. В модели ниже эта проверка достигается только после неявной и потому
+не может стать первой причиной отказа. `&&` останавливает вычисление на
+первом ложном условии.
 
-{% capture job3_start %}{% raw %}  # PR создаётся только после успешной проверки handoff и при запуске из main;
-  # остальные события не доходят до job с правами на запись.{% endraw %}{% endcapture %}
+В YAML `>` сворачивает переносы между этими одинаково отступленными строками
+в пробелы, а модификатор `-` удаляет завершающий перенос. Вариант
+[`|` в Bash-шаге](#handoff-bash) сохраняет внутренние переносы. Результат
+сворачивания показан одной строкой.
 
-<div id="job3-start" markdown="1">
+<pre class="publication-code"><code>needs.check.outputs.handoff_ready == 'true' &amp;&amp; !(github.event_name == 'workflow_dispatch' &amp;&amp; inputs.independent_validation) &amp;&amp; needs['validate-release-handoff'].result == 'success' &amp;&amp; github.ref == 'refs/heads/main'</code></pre>
 
-{% include source-preview.html source=job3_start label="Переход к Job 3 · строки 149–150" path=workflow_path revision=reviewed_revision start=149 comment="#" %}
+<figure class="figure lesson-figure publication-lab" data-publish-admission aria-labelledby="publish-admission-title">
+  <h5 id="publish-admission-title">Допуск Job 3</h5>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    {% assign dependency_names = 'Job 1|Job 2' | split: '|' %}
+    {% for name in dependency_names %}
+    <label>{{ name }} <select data-dependency><option>success</option><option>failure</option><option>cancelled</option><option>skipped</option></select></label>
+    {% endfor %}
+    <label><input type="checkbox" data-ready checked> Handoff готов</label>
+    <label><input type="checkbox" data-validation-only> Validation-only</label>
+    <label>Ref запуска <select data-ref><option value="main">main</option><option value="feature">Feature branch</option><option value="tag">Тег</option></select></label>
+  </div>
+  {% assign admission_nodes = 'Обе зависимости успешны|Handoff готов|Production-режим|Явный успех Job 2|Ref точно main' %}
+  {% assign publication_nodes = admission_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  <p class="release-result" data-lab-result role="status">RUN · Job 3 допущен к запуску.</p>
+  <figcaption>Переключатель validation-only моделирует ручной запуск с <code>independent_validation</code>. SKIP в цепочке означает, что условие дальше не вычислялось. <a href="#publish-admission-source">Посмотреть подсветку условий в YAML</a>.</figcaption>
+</figure>
 
+Условие управляет путём выполнения этого workflow. Ограничения для других
+workflow и права на изменение их кода определяются настройками репозитория.
+
+#### 2.9.2. Полномочия третьего job. {#publish-permissions-step}
+
+{% capture publish_yaml_159 %}{% raw %}    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_159 label="Runner, полномочия и начало steps · строки 159–163" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=159 comment="#" %}
+
+Job 3 выполняется на `ubuntu-24.04`. Выберите «Job 3» в
+[исследователе разрешений](#token-capabilities), чтобы сравнить права токенов.
+`contents: write` покрывает создание и публикацию GitHub Release,
+загрузку assets и push automation-ветки. `pull-requests: write` нужен для
+создания PR. Настройки Actions и защита веток могут дополнительно ограничить
+эти операции. Административных полномочий job не запрашивает. Слияние
+остаётся частью обычного процесса ревью.
+
+#### 2.9.3. Почему здесь checkout main, а не github.sha? {#publish-checkout}
+
+{% capture publish_yaml_164 %}{% raw %}      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_164 label="Checkout текущей main · строки 164–168" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=164 comment="#" %}
+
+[Job 2 выбирает точный SHA запуска](#handoff-revision-title). Job 3 выбирает
+`ref: main`, поэтому следующий шаг сравнит фактический checkout `HEAD` с
+`base_commit` из handoff. Если к checkout база уже другая, кандидат нужно
+готовить заново. Сравнение относится к скачанному коммиту. После checkout
+удалённая `main` всё ещё может продвинуться. Как и раньше,
+[`persist-credentials: false`](#checkout-credentials) отключает сохранение
+учётных данных для последующих команд Git.
+
+<figure class="figure lesson-figure publication-lab" data-publish-drift aria-labelledby="publish-drift-title">
+  <h5 id="publish-drift-title">Что изменится, если main продвинется?</h5>
+  <div class="lab-controls" data-lab-controls hidden>
+    <label><input type="checkbox" data-main-advance> Ветка <code>main</code> обновилась после подготовки кандидата</label>
+  </div>
+  <div class="commit-graph publish-revision">
+    <div class="commit-node"><strong>A</strong><small>Ранний коммит</small></div>
+    <div class="commit-node"><strong>B</strong><small>Job 1 и Job 2</small><span data-main-b><code>main</code></span></div>
+    <div class="commit-node"><strong>C</strong><small>Следующий коммит</small><span data-main-c hidden><code>main</code></span></div>
+    <div class="commit-runner" data-publish-target>Job 3 → <strong data-head>B</strong></div>
+  </div>
+  <dl class="publication-pair">
+    <div><dt>Ожидаемый <code>base_commit</code></dt><dd><code>B</code></dd></div>
+    <div><dt>Фактический <code>HEAD</code></dt><dd><code data-head>B</code></dd></div>
+  </dl>
+  <p class="release-result" data-lab-result role="status">PASS · база совпала. Job 3 продолжает применять handoff.</p>
+  <figcaption>A, B и C — условные идентификаторы коммитов.</figcaption>
+</figure>
+
+#### 2.9.4. Повторно получаем проверенные artifacts. {#publish-downloads}
+
+[Точные строки 170–180 в ранее разобранном шаге скачивания](#job3-downloads).
+
+Имена и пути совпадают с [блоком скачивания Job 2](#job2-download-all).
+В [исследователе артефактов](#handoff-downloads) можно посмотреть состав обоих
+наборов. Здесь оба набора попадают во временный каталог runner публикации.
+
+<ol class="lesson-flow publication-flow" role="list">
+  <li class="flow-node"><strong>Job 1</strong><span>Загружает два набора</span></li>
+  <li class="flow-node release-boundary"><strong>Текущий Actions run</strong><code>release-handoff</code> <code>crates-distribution</code></li>
+  <li class="flow-node"><strong>Job 3</strong><span>Скачивает оба в <code>runner.temp</code></span></li>
+</ol>
+
+Job 2 передаёт статус проверки через `needs`. Job 3 получает файлы из
+хранилища запуска, куда их загрузил Job 1.
+
+#### 2.9.5. Применяем handoff к рабочему дереву. {#publish-apply}
+
+{% capture publish_yaml_182 %}{% raw %}      - name: Apply validated release handoff
+        id: apply-handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkout_status="$(git status --short)"
+          if test -n "$checkout_status"; then
+            echo "ERROR: fresh main checkout is not clean" >&2
+            printf '%s\n' "$checkout_status" >&2
+            exit 1
+          fi
+          base_commit="$(git rev-parse HEAD)"
+          cp "$GITHUB_WORKSPACE/app-editors/zed/Manifest" "$RUNNER_TEMP/base-Manifest"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+            --apply-handoff "$RUNNER_TEMP/release-handoff" \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --expected-base-commit "$base_commit" \
+            --github-output "$GITHUB_OUTPUT"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_182 label="Проверка checkout, сохранение Manifest и применение handoff · строки 182–199" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=182 comment="#" %}
+
+`$(…)` подставляет стандартный вывод команды в присваивание.
+`git status --short` даёт краткий список изменений в checkout. Если строка
+не пуста (`test -n`), `echo` пишет причину, а `printf '%s\n'` печатает сам
+список с завершающим переносом. `>&2` направляет оба сообщения в stderr.
+`exit 1` завершает шаг с ошибкой. `git rev-parse HEAD` возвращает полный
+SHA checkout. До изменения рабочего дерева `cp` сохраняет исходный Manifest
+в `base-Manifest`. Позже публикация сравнит с ним записи уже существующих
+distfiles. После применения handoff рабочий Manifest содержит версию кандидата
+и больше не годится как исходная точка сравнения.
+
+`--prepare` готовит кандидат, `--validate-handoff` проверяет переносимый
+набор, `--apply-handoff` повторяет валидацию и пишет файлы в
+`--repository-root`. `--expected-base-commit` получает SHA текущего checkout.
+`--github-output` указывает файл для выходов шага.
+`PYTHONDONTWRITEBYTECODE=1` отключает запись кэша байткода Python.
+
+{% capture publish_handoff_288 %}{% raw %}def _write_new_file(path: Path, content: bytes) -> None:
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except OSError as error:
+        raise HandoffError(f"Could not create handoff destination file: {path}") from error
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(content)
+
+
+def apply_release_handoff(
+    repository_root: Path, handoff_directory: Path, *, expected_base_commit: str
+) -> AppliedHandoff:
+    """Apply only validated package files to a fresh base checkout."""
+    metadata = validate_release_handoff(
+        handoff_directory, expected_base_commit=expected_base_commit
+    )
+    candidate_version = metadata["candidate_version"]
+    release_tag = metadata["release_tag"]
+    if not isinstance(candidate_version, str) or not isinstance(release_tag, str):
+        raise HandoffError("Validated handoff metadata has an invalid release identity")
+    manifest_path, candidate_ebuild_path, candidate_patch_path = _artifact_paths(
+        candidate_version
+    )
+
+    package_directory = repository_root / "app-editors/zed"
+    files_directory = package_directory / "files"
+    _require_directory(repository_root / "app-editors", "package parent directory")
+    _require_directory(package_directory, "package directory")
+    _require_directory(files_directory, "package files directory")
+    _require_regular_file(repository_root / manifest_path, "destination Manifest")
+
+    destination_ebuild = repository_root / candidate_ebuild_path
+    destination_patch = repository_root / candidate_patch_path
+    if _path_exists(destination_ebuild):
+        raise HandoffError(f"Candidate ebuild already exists: {destination_ebuild}")
+
+    artifact_manifest = handoff_directory / manifest_path{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_handoff_288 label="Эксклюзивное создание, проверка базы и существующего ebuild · строки 288–324" path="scripts/release_handoff.py" revision=publish_revision start=288 comment="#" %}
+
+{% capture publish_handoff_334 %}{% raw %}    patch_created = not _path_exists(destination_patch)
+    if not patch_created:
+        _require_regular_file(destination_patch, "destination candidate patch")
+        if destination_patch.read_bytes() != patch_content:
+            raise HandoffError(
+                f"Existing candidate patch differs from handoff: {destination_patch}"
+            )
+
+    # Сначала размещаем ebuild и patch, затем копируем соответствующий им Manifest;
+    # так Manifest не объявляет candidate до появления обоих package files.
+    _write_new_file(destination_ebuild, ebuild_content)
+    if patch_created:
+        _write_new_file(destination_patch, patch_content)
+    (repository_root / manifest_path).write_bytes(manifest_content)
+    return AppliedHandoff(
+        release_tag=release_tag,
+        candidate_version=candidate_version,
+        branch=f"automation/zed-{release_tag}",
+        patch_created=patch_created,
+    )
+
+
+def _write_github_output(path: Path, result: AppliedHandoff) -> None:
+    values = {
+        "release_tag": result.release_tag,
+        "candidate_version": result.candidate_version,
+        "branch": result.branch,
+        "patch_created": str(result.patch_created).lower(),
+    }
+    with path.open("a", encoding="utf-8") as output:
+        for key, value in values.items():
+            output.write(f"{key}={value}\n"){% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_handoff_334 label="Проверка patch, порядок записи и outputs · строки 334–365" path="scripts/release_handoff.py" revision=publish_revision start=334 comment="#" %}
+
+<figure class="figure lesson-figure publication-lab" data-publish-apply aria-labelledby="publish-apply-title">
+  <h5 id="publish-apply-title">Что попадёт в checkout?</h5>
+  <div class="lab-controls" data-lab-controls hidden>
+    {% assign publication_scenarios = 'Новый patch|Идентичный patch уже есть|Грязный checkout|База разошлась|Ebuild уже есть|Существующий patch отличается' | split: '|' %}
+    <label>Сценарий <select>
+      {% for option in publication_scenarios %}<option value="{{ forloop.index0 }}">{{ option }}</option>{% endfor %}
+    </select></label>
+  </div>
+  <p class="release-result" data-lab-result role="status">PASS · handoff применён. Выходы доступны следующим шагам.</p>
+  <div class="publication-trees">
+    <div class="artifact-tree workspace handoff-tree"><strong>Checkout до применения</strong>
+      <ul role="list"><li><code>app-editors/zed/</code><ul role="list">
+        <li><code>Manifest</code> · <span data-checkout-manifest>исходный</span></li>
+        <li><code>zed-1.27.0.ebuild</code></li>
+        <li data-old-ebuild hidden><code>zed-1.28.1.ebuild</code> · уже существует</li>
+        <li><code>files/</code><ul role="list">
+          <li><code>zed-1.27.0-wayland-only.patch</code></li>
+          <li data-old-patch hidden><code>zed-1.28.1-wayland-only.patch</code> · <span></span></li>
+        </ul></li>
+      </ul></li></ul>
+    </div>
+    <div class="artifact-tree workspace handoff-tree"><strong>Скачанный handoff</strong>
+      <ul role="list"><li><code>release.json</code> · метаданные</li>
+        <li><code>app-editors/zed/</code><ul role="list">
+          <li><code>Manifest</code></li><li><code>zed-1.28.1.ebuild</code></li>
+          <li><code>files/</code><ul role="list"><li><code>zed-1.28.1-wayland-only.patch</code></li></ul></li>
+        </ul></li>
+      </ul>
+    </div>
+  </div>
+  {% assign apply_nodes = 'Чистый checkout|Сверка базы|Ebuild свободен|Проверка patch|Запись в checkout' %}
+  {% assign publication_nodes = apply_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  <ul class="publication-effects">
+    <li><code>zed-1.28.1.ebuild</code> · <span data-ebuild-effect>создан</span></li>
+    <li><code>files/zed-1.28.1-wayland-only.patch</code> · <span data-patch-effect>создан</span></li>
+    <li><code>Manifest</code> · <span data-manifest-effect>заменён после записи package files</span></li>
+  </ul>
+  <div data-apply-outputs>
+    <pre class="publication-code"><code>release_tag=v1.28.1
+candidate_version=1.28.1
+branch=automation/zed-v1.28.1
+patch_created=<span data-patch-created>true</span></code></pre>
+  </div>
+  <figcaption>В обоих успешных сценариях старые ebuild и patch сохраняются. <code>release.json</code> читается из handoff и остаётся за пределами overlay.</figcaption>
+</figure>
+
+Новый ebuild и новый patch открываются в режиме `xb`: файл создаётся
+эксклюзивно, уже существующий путь вызывает ошибку. Идентичный существующий
+patch оставляют на месте. Manifest записывается последним. Автоматического
+отката этих локальных записей нет. Ошибка файловой системы может оставить
+частично изменённое рабочее дерево и остановит обычные шаги публикации.
+`_write_github_output()` дописывает пары `ключ=значение` после применения.
+`patch_created` передаётся строкой `"true"` или `"false"` и определяет,
+входит ли patch в [список ожидаемых staged-путей](#publish-staged).
+
+#### 2.9.6. Проверяем overlay после применения изменений. {#publish-policy}
+
+{% capture publish_yaml_201 %}{% raw %}      - name: Check overlay policy after handoff apply
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_201 label="Политика overlay на изменённом checkout · строки 201–202" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=201 comment="#" %}
+
+<ol class="lesson-flow publication-flow" role="list">
+  <li class="flow-node">Свежий checkout</li><li class="flow-node">Применение handoff</li>
+  <li class="flow-node release-boundary">Проверка overlay</li><li class="flow-node">Переход к публикации</li>
+</ol>
+
+Проверка handoff сверяет состав и согласованность переданных файлов.
+[`overlay_policy.py`](#overlay-policy-step) проверяет правила целевого
+overlay с применённым кандидатом. Например, он находит новый ebuild в
+рабочем дереве ещё до `git add` и проверяет его Wayland patch.
+[Лаборатория политики overlay](#policy-lab-title). Оба результата
+оставляют открытыми вопросы сборки и работы Zed в native Wayland.
+
+### Блок B. Публикация crates distribution {#publish-block-b}
+
+#### 2.9.7. Подготавливаем параметры публикации. {#publish-inputs}
+
+{% capture publish_yaml_204 %}{% raw %}      - name: Publish validated crates release
+        id: publish-crates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE_VERSION: ${{ steps.apply-handoff.outputs.candidate_version }}
+          ARCHIVE_MODE: ${{ needs.check.outputs.archive_mode }}
+          EXPECTED_METADATA_SHA256: ${{ needs.check.outputs.metadata_sha256 }}
+          INDEPENDENT_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.independent_validation && 'true' || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_github.py publish \
+            --version "$CANDIDATE_VERSION" --expected-mode "$ARCHIVE_MODE" \
+            --base-commit "$GITHUB_SHA" --bundle "$RUNNER_TEMP/crates-distribution" \
+            --handoff "$RUNNER_TEMP/release-handoff" \
+            --base-manifest "$RUNNER_TEMP/base-Manifest" \
+            --metadata-sha256 "$EXPECTED_METADATA_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_204 label="Окружение и вызов publish · строки 204–220" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=204 comment="#" %}
+
+<dl class="publication-inputs">
+  <div><dt>Токен job</dt><dd><code>GITHUB_TOKEN</code> даёт доступ на запись, в отличие от токенов Job 1 и Job 2.</dd></div>
+  <div><dt><code>steps.apply-handoff.outputs</code></dt><dd><code>CANDIDATE_VERSION</code> берётся из шага текущего job.</dd></div>
+  <div><dt><code>needs.check.outputs</code></dt><dd><code>ARCHIVE_MODE</code> и <code>EXPECTED_METADATA_SHA256</code> приходят из Job 1.</dd></div>
+  <div><dt>Событие и входные параметры</dt><dd>Выражение сводит пару <code>workflow_dispatch</code> и <code>independent_validation</code> к строке <code>INDEPENDENT_VALIDATION</code>.</dd></div>
+</dl>
+
+`--version` задаёт версию и тем самым имена release и assets.
+`--expected-mode` передаёт режим подготовки архива.
+`--base-commit "$GITHUB_SHA"` связывает публикацию с исходным коммитом
+запуска. Он сохраняет свой смысл после checkout текущей `main`.
+`--bundle` указывает на архив и metadata JSON, `--handoff` — на
+согласованные файлы кандидата, `--base-manifest` — на снятую до применения
+копию Manifest. `--metadata-sha256` привязывает полученный JSON к хэшу
+из Job 1, чтобы повторная проверка имела независимое ожидаемое значение.
+
+{% capture publish_distribution_175 %}{% raw %}def preserve_manifest(before: Path, after: Path) -> None:
+    old, new = manifest_records(before), manifest_records(after)
+    for name, line in old.items():
+        if new.get(name) != line:
+            raise ValueError(f'Existing Manifest distfile changed: {name}')
+
+
+def validate_bundle(bundle: Path, handoff: Path, base_commit: str, base_manifest: Path,
+                    metadata_sha256: str) -> dict:
+    meta = release_handoff.validate_release_handoff(handoff, expected_base_commit=base_commit)
+    version = meta['candidate_version']
+    archive_name, metadata_name = names(version)
+    if not stat.S_ISDIR(bundle.lstat().st_mode) or {p.name for p in bundle.iterdir()} != {archive_name, metadata_name}:
+        raise ValueError('Distribution bundle has unexpected files')
+    if not SHA256.fullmatch(metadata_sha256):
+        raise ValueError('Invalid expected metadata digest')
+    data = read_metadata(bundle / metadata_name, version)
+    if sha256(bundle / metadata_name) != metadata_sha256:
+        raise ValueError('Metadata digest mismatch')
+    validate_archive(data, bundle / archive_name)
+    candidate = (handoff / meta['candidate_ebuild_path']).read_text(encoding='utf-8')
+    validate_uri(candidate, allow_legacy=False)
+    if 'gentoo-crate-dist/zed' in candidate:
+        raise ValueError('Candidate retains legacy crates source')
+    if sync.parse_entries(candidate) != data['git_crates']:
+        raise ValueError('Candidate GIT_CRATES disagrees with metadata')
+    inspector.verify_manifest(bundle / archive_name, handoff / meta['manifest_path'])
+    regular(base_manifest)
+    preserve_manifest(base_manifest, handoff / meta['manifest_path'])
+    return data{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_distribution_175 label="Проверка bundle до первого изменения GitHub · строки 175–204" path="scripts/crates_distribution.py" revision=publish_revision start=175 comment="#" %}
+
+В write-enabled job проверяются локальные файлы, с которыми предстоит
+работать: размер и хэш архива, metadata SHA256, URI и список Git-крейтов,
+Manifest архива и сохранность прежних записей distfiles. Отдельно CLI
+требует `GITHUB_REF=refs/heads/main`, ожидаемый `GITHUB_REPOSITORY`,
+строку `false` в `INDEPENDENT_VALIDATION` и совпадение `GITHUB_SHA`
+с переданным base commit. Сам workflow передаёт тот же `GITHUB_SHA`,
+а валидация bundle отдельно сверяет его с метаданными handoff. YAML
+решает, запускать ли job, а CLI проверяет контекст перед публикацией.
+
+{% capture publish_github_326 %}{% raw %}        else:
+            if (os.environ.get('GITHUB_REF') != 'refs/heads/main' or
+                    os.environ.get('GITHUB_REPOSITORY') != REPOSITORY or
+                    os.environ.get('INDEPENDENT_VALIDATION') != 'false' or
+                    os.environ.get('GITHUB_SHA') != args.base_commit):
+                raise GitHubError('Publication requires main, the workflow base, and production mode')
+            start = time.monotonic()
+            result = publish(client, args.version, args.base_commit, Path(args.bundle), Path(args.handoff),
+                             Path(args.base_manifest), args.metadata_sha256, expected_mode=args.expected_mode)
+            print(f'Release result: {result}; publication and public verification: {time.monotonic() - start:.1f}s')
+            print(f'Crates release: https://github.com/{REPOSITORY}/releases/tag/{release_tag(args.version)}')
+            output = os.environ.get('GITHUB_OUTPUT')
+            if output:
+                with open(output, 'a', encoding='utf-8') as f:
+                    f.write(f'publication_result={result}\n')
+    except (GitHubError, OSError, ValueError, KeyError, distribution.snapshot.CargoSnapshotError,
+            distribution.release_handoff.HandoffError) as error:
+        print(f'Crates release error: {error}', file=sys.stderr)
+        return 1{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_326 label="Проверки CLI и запись publication_result · строки 326–344" path="scripts/crates_github.py" revision=publish_revision start=326 comment="#" %}
+
+Оператор `|` передаёт stdout Python в `tee -a`. Вывод виден в журнале
+и дописывается в `GITHUB_STEP_SUMMARY`. Stderr идёт отдельно.
+[`pipefail`](#handoff-bash) сохраняет ошибку Python в статусе конвейера,
+даже если `tee` успешно записал полученный текст.
+
+#### 2.9.8. Generation и reuse: два пути публикации. {#publish-decision}
+
+`archive_mode` отвечает на вопрос «как Job 1 получил локальный bundle?».
+`publication_result` описывает, что сделал с ним Job 3. Допустимы
+`generation:generation`, `generation:reuse` и `reuse:reuse`.
+Второй вариант нужен, когда после подготовки уже появился подходящий
+публичный release. Если ранее найденный release исчез на пути `reuse`,
+публикация останавливается. Создание нового релиза потребовало бы пути
+`generation` с его отдельными проверками исходного состояния.
+
+{% capture publish_github_222 %}{% raw %}def publish(client: Client, version: str, base_commit: str, bundle: Path, handoff: Path,
+            base_manifest: Path, metadata_sha256: str, report=print,
+            expected_mode: str = 'generation') -> str:
+    if expected_mode not in ('generation', 'reuse'):
+        raise GitHubError('Invalid validated archive mode')
+    distribution.validate_bundle(bundle, handoff, base_commit, base_manifest, metadata_sha256)
+    publication_start = time.monotonic()
+    tag = release_tag(version)
+    matches = [r for r in all_releases(client) if r.get('tag_name') == tag]
+    if len(matches) > 1:
+        raise GitHubError('Multiple releases use the requested tag')
+    if matches:
+        release = matches[0]
+        if release.get('draft') is not False:
+            raise GitHubError('Conflicting draft release requires manual recovery')
+        require_published_tag(client, version)
+        verify_remote_assets(client, release, version, bundle, draft=False)
+        result = 'reuse'
+    else:
+        if expected_mode == 'reuse':
+            raise GitHubError('Previously published release disappeared before publication')
+        status, _ = client.api(f'/repos/{REPOSITORY}/git/ref/tags/{tag}')
+        if status != 404:
+            raise GitHubError('Conflicting standalone tag or failed tag lookup')
+        status, release = client.api(f'/repos/{REPOSITORY}/releases', method='POST', data={
+            'tag_name': tag, 'target_commitish': base_commit, 'name': tag,
+            'draft': True, 'prerelease': False, 'make_latest': 'false',
+        })
+        if (status != 201 or not isinstance(release, dict) or release.get('draft') is not True or
+                release.get('tag_name') != tag or release.get('target_commitish') != base_commit or
+                type(release.get('id')) is not int):
+            raise GitHubError('Draft release creation returned an invalid response')
+        release_id = release['id']{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_222 label="Режим подготовки, существующие releases и создание draft · строки 222–254" path="scripts/crates_github.py" revision=publish_revision start=222 comment="#" %}
+
+<figure class="figure lesson-figure publication-lab" data-publish-decision aria-labelledby="publish-decision-title">
+  <h5 id="publish-decision-title">Какое действие разрешено для release?</h5>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label>Режим Job 1 <select data-mode><option>generation</option><option>reuse</option></select></label>
+    <label>Состояние GitHub <select data-remote>
+      <option>Нет release и тега</option><option>Публичный release, assets совпадают</option>
+      <option>Публичный release, assets отличаются</option><option>Конфликтующий draft</option>
+      <option>Отдельный тег</option><option>Несколько releases для тега</option><option>Ошибка получения списка releases</option>
+    </select></label>
+  </div>
+  {% assign decision_nodes = 'Список releases|Проверка состояния|Создать draft или проверить release|Публичная проверка' %}
+  {% assign publication_nodes = decision_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  <p class="release-result" data-lab-result role="status">Создать draft, проверить assets и опубликовать. После успешной публичной проверки: publication_result=generation.</p>
+  <figcaption>Здесь дальнейшие проверки выбранного пути считаются успешными, если в сценарии не задан конфликт. Сбои после создания draft разбираются ниже.</figcaption>
+</figure>
+
+#### 2.9.9. Draft release и проверка загруженных assets. {#publish-draft-release}
+
+У upstream Zed `v1.28.1` — Git-тег его исходников. В overlay
+`crates-v1.28.1` — Git-тег crates distribution. GitHub Release привязан к
+этому тегу и хранит два файла. Пока Release в draft, скрипт загружает и
+проверяет их через API. При публикации появляется публичный URL для Portage.
+Draft PR — отдельный объект, через который проверяют изменения overlay.
+
+<ol class="lesson-flow publication-flow" role="list">
+  <li class="flow-node"><strong>Вход</strong>Bundle → список releases с drafts → проверка release и тега</li>
+  <li class="flow-node"><strong>Draft release</strong>Создание → загрузка архива и JSON → чтение draft</li>
+  <li class="flow-node release-boundary"><strong>Проверка перед публикацией</strong>Имена, ID, размеры, digest и скачанные байты → повторная проверка release и тега</li>
+  <li class="flow-node"><strong>Публичный release</strong>Публикация → проверка identity и тега → анонимное скачивание → output</li>
+</ol>
+
+Для draft `tag_name` и `name` получают имя crates-тега, а
+`target_commitish` — проверенный SHA базы overlay. `draft: true`
+оставляет время для проверки обоих assets. `prerelease: false` задаёт
+обычный релиз, `make_latest: 'false'` исключает выбор этого Release как Latest.
+Архив и JSON лежат в одном релизе, чтобы проверка могла потребовать ровно
+ожидаемый набор файлов для версии.
+
+{% capture publish_github_100 %}{% raw %}def expected_assets(release: object, version: str, *, draft: bool = False) -> dict[str, dict]:
+    if (not isinstance(release, dict) or release.get('tag_name') != release_tag(version) or
+            release.get('draft') is not draft or release.get('prerelease') is not False or
+            type(release.get('id')) is not int or release['id'] <= 0 or
+            (not draft and not isinstance(release.get('published_at'), str)) or
+            (draft and release.get('published_at') is not None) or
+            not isinstance(release.get('assets'), list)):
+        raise GitHubError('Invalid release identity or state')
+    names = set(distribution.names(version))
+    assets = release['assets']
+    if (len(assets) != len(names) or
+            any(not isinstance(a, dict) or not isinstance(a.get('name'), str) for a in assets)):
+        raise GitHubError('Release assets are incomplete or unexpected')
+    if {a.get('name') for a in assets} != names:
+        raise GitHubError('Release asset names are incomplete or unexpected')
+    for asset in assets:
+        if (type(asset.get('id')) is not int or asset['id'] <= 0 or
+                type(asset.get('size')) is not int or asset['size'] <= 0 or
+                asset.get('state') != 'uploaded'):
+            raise GitHubError('Invalid release asset metadata')
+    if len({a['id'] for a in assets}) != len(assets):
+        raise GitHubError('Duplicate release asset IDs')
+    return {a['name']: a for a in assets}
+
+
+def require_published_tag(client: Client, version: str) -> None:
+    tag = release_tag(version)
+    status, reference = client.api(f'/repos/{REPOSITORY}/git/ref/tags/{tag}')
+    obj = reference.get('object') if isinstance(reference, dict) else None
+    if (status != 200 or not isinstance(reference, dict) or reference.get('ref') != f'refs/tags/{tag}' or
+            not isinstance(obj, dict) or obj.get('type') not in ('tag', 'commit') or
+            not isinstance(obj.get('sha'), str) or not distribution.SHA1.fullmatch(obj['sha'])):
+        raise GitHubError('Published release has no valid matching Git tag'){% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_100 label="Состояние release, идентичность assets и проверка тега при reuse · строки 100–132" path="scripts/crates_github.py" revision=publish_revision start=100 comment="#" %}
+
+{% capture publish_github_206 %}{% raw %}def verify_remote_assets(client: Client, release: dict, version: str, bundle: Path, *, draft: bool) -> None:
+    assets = expected_assets(release, version, draft=draft)
+    with tempfile.TemporaryDirectory(prefix='zed-asset-verify-') as directory:
+        for name, asset in assets.items():
+            local = bundle / name
+            if asset['size'] != local.stat().st_size:
+                raise GitHubError(f'Remote asset size mismatch: {name}')
+            expected_digest = 'sha256:' + distribution.sha256(local)
+            if asset.get('digest') != expected_digest:
+                raise GitHubError(f'Remote asset SHA256 mismatch: {name}')
+            downloaded = Path(directory) / name
+            client.download(f"{API}/repos/{REPOSITORY}/releases/assets/{asset['id']}", downloaded, auth=True)
+            if distribution.sha256(downloaded) != distribution.sha256(local):
+                raise GitHubError(f'Remote asset content mismatch: {name}'){% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_206 label="Размер, digest и проверка байтов из API · строки 206–219" path="scripts/crates_github.py" revision=publish_revision start=206 comment="#" %}
+
+После загрузки обоих assets код считывает draft заново. Он проверяет
+состояние, точные имена и уникальность ID, размеры, SHA256 из API и SHA256
+повторно скачанного содержимого. После перевода своего draft в опубликованное
+состояние он проверяет ID release и требует, чтобы Git ref был типа
+`commit` и указывал на проверенную базу. При reuse проверяется существование
+подходящего ref тега (объект `tag` или `commit`) и соответствие assets.
+Сравнения SHA существующего тега с текущим SHA запуска на этом пути нет.
+
+#### 2.9.10. Race conditions и конфликтующие состояния. {#publish-races}
+
+{% capture publish_github_255 %}{% raw %}        report(f'Draft {tag} created; failed uploads or checks require manual recovery')
+        for name in distribution.names(version):
+            content = (bundle / name).read_bytes()
+            status, _ = client.request(f'https://uploads.github.com/repos/{REPOSITORY}/releases/{release_id}/assets?name={name}',
+                                       method='POST', payload=content,
+                                       content_type='application/octet-stream')
+            if status != 201:
+                raise GitHubError(f'Asset upload failed: {name} HTTP {status}')
+        status, release = client.api(f'/repos/{REPOSITORY}/releases/{release_id}')
+        if status != 200 or not isinstance(release, dict):
+            raise GitHubError('Cannot inspect uploaded draft release')
+        verify_remote_assets(client, release, version, bundle, draft=True)
+        matches = [r for r in all_releases(client) if r.get('tag_name') == tag]
+        if len(matches) != 1 or matches[0].get('id') != release_id or matches[0].get('draft') is not True:
+            raise GitHubError('Release state changed during draft upload')
+        status, _ = client.api(f'/repos/{REPOSITORY}/git/ref/tags/{tag}')
+        if status != 404:
+            raise GitHubError('Tag appeared during draft upload')
+        status, release = client.api(f'/repos/{REPOSITORY}/releases/{release_id}', method='PATCH',
+                                     data={'draft': False, 'make_latest': 'false'})
+        if status != 200 or not isinstance(release, dict) or release.get('draft') is not False:
+            raise GitHubError('Release publication failed or returned invalid state')
+        report(f'Release {tag} published; public verification is pending')
+        expected_assets(release, version)
+        if release['id'] != release_id:
+            raise GitHubError('Published release ID changed')
+        status, reference = client.api(f'/repos/{REPOSITORY}/git/ref/tags/{tag}')
+        obj = reference.get('object') if isinstance(reference, dict) else None
+        if (status != 200 or not isinstance(obj, dict) or
+                obj.get('sha') != base_commit or obj.get('type') != 'commit'):
+            raise GitHubError('Published tag does not point to the validated base commit')
+        result = 'generation'{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_255 label="Загрузка, повторное чтение состояния, публикация и проверка тега · строки 255–286" path="scripts/crates_github.py" revision=publish_revision start=255 comment="#" %}
+
+Между чтением GitHub и записью состояние может измениться. Код повторно
+получает список releases после загрузки и проверки assets. Он требует один
+release с тем же ID и со статусом draft. Затем снова проверяет отсутствие
+тега, публикует и проверяет результат операции. Это отдельные запросы.
+[Concurrency](#concurrency) уменьшает число пересекающихся запусков этой
+группы. Действия других процессов или людей между запросами остаются возможны.
+
+В [лаборатории публикации](#publish-race-title) можно выбрать момент отказа. Отказ до публикации может оставить draft с частью assets или со всеми
+загруженными файлами. Отказ после публикации может оставить публичный
+release. Аналогично ошибка создания PR не удаляет release. Скрипт
+не удаляет и не заменяет конфликтующие assets, drafts или теги автоматически.
+
+#### 2.9.11. Проверяем публичную доступность архива. {#publish-public}
+
+{% capture publish_github_287 %}{% raw %}    report(f'Release upload/publication or reuse verification: {time.monotonic() - publication_start:.1f}s')
+    public_start = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix='zed-public-verify-') as directory:
+        for name in distribution.names(version):
+            dest = Path(directory) / name
+            client.download(public_url(version, name), dest)
+            local = bundle / name
+            if dest.stat().st_size != local.stat().st_size or distribution.sha256(dest) != distribution.sha256(local):
+                raise GitHubError(f'Public asset does not match validated bundle: {name}')
+            if name.endswith('.tar.xz'):
+                metadata = release_handoff_metadata(handoff, base_commit)
+                inspector.verify_manifest(dest, handoff / metadata['manifest_path'])
+    report(f'Public download verification: {time.monotonic() - public_start:.1f}s')
+    return result{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_287 label="Публичная проверка архива и metadata JSON · строки 287–300" path="scripts/crates_github.py" revision=publish_revision start=287 comment="#" %}
+
+Actions artifacts передают файлы между runner внутри запуска. Release assets
+живут в GitHub Release. Для проверки через API нужен ID asset, а скачивание
+идёт с `auth=True`. Для публичной проверки каждый файл запрашивается
+по release URL с `auth=False` по умолчанию. Так проверяется путь, доступный
+Portage без токена. Пример URL из схемы distribution:
+
+<pre class="publication-code"><code>https://github.com/vovanbl411/zed-overlay/releases/download/crates-v1.28.1/zed-1.28.1-overlay-crates.tar.xz</code></pre>
+
+{% capture publish_github_88 %}{% raw %}    def download(self, url: str, path: Path, *, auth: bool = False) -> None:
+        status, _ = self.request(url, auth=auth, output=path,
+                                 accept='application/octet-stream')
+        if status != 200:
+            raise GitHubError(f'Asset download failed: HTTP {status}'){% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_github_88 label="Режим скачивания по умолчанию · строки 88–92" path="scripts/crates_github.py" revision=publish_revision start=88 comment="#" %}
+
+Для каждого публичного файла проверяются размер и SHA256 относительно
+локального bundle. У архива дополнительно проверяется запись из Manifest
+кандидата, прежде чем начинается скачивание metadata. В успешном случае
+CLI [дописывает `publication_result=generation` или `publication_result=reuse`](#publish-inputs)
+в `GITHUB_OUTPUT`, если этот путь задан. В workflow его читает следующий шаг.
+
+<figure class="figure lesson-figure publication-lab" data-publish-race aria-labelledby="publish-race-title">
+  <h5 id="publish-race-title">Что останется на GitHub после остановки?</h5>
+  <div class="lab-controls release-controls" data-lab-controls hidden>
+    <label>Событие при публикации <select data-race>
+      <option>Штатная публикация</option><option>Вторая загрузка вернула ошибку</option><option>Digest загруженного asset отличается</option>
+      <option>Состояние release изменилось</option><option>Появился конфликтующий тег</option><option>Сбой после публикации</option>
+    </select></label>
+    <label>Публичная загрузка <select data-public>
+      <option>Оба файла совпадают</option><option>Архив недоступен</option><option>Metadata недоступны</option>
+      <option>Байты архива отличаются</option><option>Сбой Manifest · гипотеза</option>
+    </select></label>
+  </div>
+  <p class="release-result" data-lab-result role="status">PASS · release опубликован, публичные файлы проверены. publication_result=generation. Шаг PR допущен.</p>
+  <p><strong>Удалённое состояние</strong> <span data-remote-outcome>Публичный release с двумя проверенными assets.</span></p>
+  <div class="publication-race-rails">
+  <div>
+  <p><strong>От bundle до публичного release</strong></p>
+  {% assign race_nodes = 'Bundle и исходное состояние|Draft создан|Загрузить 2 assets|Сверить assets через API|Перепроверить release и тег|Опубликовать и проверить тег' %}
+  {% assign publication_nodes = race_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  </div>
+  <div>
+  <p><strong>От публичного URL до output</strong></p>
+  {% assign public_nodes = 'Скачать архив|Размер и SHA256 архива|Запись Manifest|Скачать metadata|Размер и SHA256 metadata|Выход шага' %}
+  {% assign publication_nodes = public_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  </div>
+  </div>
+  <figcaption>Трасса показывает путь <code>generation</code>. При reuse публичные проверки те же, а Release уже существует. Сбой Manifest после совпадения байтов предполагает изменение доступного проверке Manifest или иную гипотетическую ошибку после локальной валидации.</figcaption>
+</figure>
+
+### Блок C. Draft PR и завершение workflow {#publish-block-c}
+
+#### 2.9.12. Передаём результаты скрипту создания PR. {#publish-pr-inputs}
+
+{% capture publish_yaml_222 %}{% raw %}      - name: Publish Draft release PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.apply-handoff.outputs.branch }}
+          CANDIDATE_VERSION: ${{ steps.apply-handoff.outputs.candidate_version }}
+          PATCH_CREATED: ${{ steps.apply-handoff.outputs.patch_created }}
+          ARCHIVE_MODE: ${{ needs.check.outputs.archive_mode }}
+          PUBLICATION_RESULT: ${{ steps.publish-crates.outputs.publication_result }}
+          DISTRIBUTION_BUNDLE: ${{ runner.temp }}/crates-distribution
+        run: scripts/ci/publish-release-pr.sh{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_yaml_222 label="Окружение шага создания Draft PR · строки 222–231" path=".github/workflows/zed-release-watcher.yml" revision=publish_revision start=222 comment="#" %}
+
+`GITHUB_TOKEN` используется для push и запросов PR. Из
+`steps.apply-handoff.outputs` приходят `BRANCH`, `CANDIDATE_VERSION` и
+`PATCH_CREATED`. Они задают ветку, имена файлов и ожидаемое изменение patch.
+`ARCHIVE_MODE` приходит из Job 1 через `needs`, `PUBLICATION_RESULT` —
+из шага `publish-crates` текущего job. Скрипт допускает только три пары из
+[лаборатории публикации](#publish-decision). `DISTRIBUTION_BUNDLE`
+указывает на скачанный каталог runner. Из metadata JSON берутся сведения
+для текста PR.
+
+{% capture publish_pr_10 %}{% raw %}: "${BRANCH:?BRANCH is required}"
+: "${CANDIDATE_VERSION:?CANDIDATE_VERSION is required}"
+: "${PATCH_CREATED:?PATCH_CREATED is required}"
+: "${ARCHIVE_MODE:?ARCHIVE_MODE is required}"
+: "${PUBLICATION_RESULT:?PUBLICATION_RESULT is required}"
+: "${DISTRIBUTION_BUNDLE:?DISTRIBUTION_BUNDLE is required}"
+[[ "$CANDIDATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+case "$ARCHIVE_MODE:$PUBLICATION_RESULT" in
+  generation:generation|generation:reuse|reuse:reuse) ;;
+  *) echo "ERROR: invalid archive/publication result" >&2; exit 1 ;;
+esac{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_10 label="Чтение окружения и проверка трёх пар режимов · строки 10–20" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=10 comment="#" %}
+
+#### 2.9.13. Проверяем staged diff и список разрешённых файлов. {#publish-staged}
+
+{% capture publish_pr_30 %}{% raw %}validate_release_diff() {
+  candidate_ebuild="app-editors/zed/zed-${CANDIDATE_VERSION}.ebuild"
+  candidate_patch="app-editors/zed/files/zed-${CANDIDATE_VERSION}-wayland-only.patch"
+  git add app-editors/zed/Manifest "$candidate_ebuild" "$candidate_patch"
+  git diff --cached --check
+
+  # Manifest и ebuild обязательны; patch входит в allowlist только если handoff
+  # создал его. Любой другой staged-файл должен остановить публикацию.
+  expected_paths="$RUNNER_TEMP/zed-release-expected-paths"
+  {
+    printf '%s\n' app-editors/zed/Manifest "$candidate_ebuild"
+    if test "$PATCH_CREATED" = true; then
+      printf '%s\n' "$candidate_patch"
+    fi
+  } | sort > "$expected_paths"
+  actual_paths="$(git diff --cached --name-only | sort)"
+  if ! printf '%s\n' "$actual_paths" | cmp -s "$expected_paths" -; then
+    echo "ERROR: staged paths do not match the release handoff allowlist" >&2
+    echo "Expected:" >&2
+    cat "$expected_paths" >&2
+    echo "Actual:" >&2
+    printf '%s\n' "$actual_paths" >&2
+    exit 1
+  fi
+  if test -n "$(git diff --name-only)"; then
+    echo "ERROR: unstaged tracked changes remain after handoff apply" >&2
+    git diff --name-only >&2
+    exit 1
+  fi
+  if test -n "$(git ls-files --others --exclude-standard)"; then
+    echo "ERROR: unexpected untracked files remain after handoff apply" >&2
+    git ls-files --others --exclude-standard >&2
+    exit 1
+  fi
+}{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_30 label="Проверки Git перед поиском PR · строки 30–64" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=30 comment="#" %}
+
+Рабочее дерево — файлы checkout. Git index (staging area) — снимок, который
+пойдёт в следующий commit. Untracked-файл есть на диске, но Git его ещё
+не отслеживает. `git add` обновляет index из трёх заданных путей, а
+`git diff --cached --check` проверяет staged diff на ошибки, в том числе
+trailing whitespace. `--name-only` даёт список путей. Код сортирует и
+сравнивает его с **точным** списком из Manifest и ebuild, плюс patch при
+`PATCH_CREATED=true`. Путь к идентичному patch тоже передаётся в `git add`. Его содержимое
+совпадает с HEAD, поэтому в staged diff этого пути нет.
+
+Скрипт также проверяет, что нет unstaged-изменений tracked-файлов и
+неигнорируемых untracked-файлов. `--exclude-standard` учитывает обычные
+правила игнорирования. Совпадение имён путей проверяет объём коммита.
+Содержимое проверяют другие этапы и ревью. Игнорируемые файлы и объекты
+за пределами checkout не входят в эту проверку.
+
+<figure class="figure lesson-figure publication-lab" data-publish-staged aria-labelledby="publish-staged-title">
+  <h5 id="publish-staged-title">Что готово попасть в commit?</h5>
+  <div class="lab-controls" data-lab-controls hidden>
+    {% assign publication_scenarios = 'Новый patch|Идентичный patch|Лишний staged-файл|В staged diff отсутствует Manifest|Unstaged tracked-правка|Неигнорируемый untracked-файл|Пробел в конце добавленной строки' | split: '|' %}
+    <label>Сценарий <select>
+      {% for option in publication_scenarios %}<option value="{{ forloop.index0 }}">{{ option }}</option>{% endfor %}
+    </select></label>
+  </div>
+  <p>Рабочее дерево → <code>git add</code> → Git index</p>
+  {% assign paths = 'Manifest|zed-1.28.1.ebuild|files/zed-1.28.1-wayland-only.patch|metadata/layout.conf' | split: '|' %}
+  <div class="publication-trees">
+    <div class="workspace"><strong>Ожидаемые staged-пути</strong>
+      <ul role="list">{% for path in paths %}<li data-expected="{{ forloop.index0 }}"{% if forloop.last %} hidden{% endif %}><code>{{ path }}</code></li>{% endfor %}</ul>
+    </div>
+    <div class="workspace"><strong>Фактические staged-пути</strong>
+      <ul role="list">{% for path in paths %}<li data-actual="{{ forloop.index0 }}"{% if forloop.last %} hidden{% endif %}><code>{{ path }}</code></li>{% endfor %}</ul>
+    </div>
+  </div>
+  <p>Имена package files показаны относительно <code>app-editors/zed/</code>. <code>metadata/layout.conf</code> — путь от корня overlay.</p>
+  <p data-staged-detail hidden></p>
+  {% assign staged_nodes = 'Проверка whitespace|Точный список путей|Unstaged tracked|Untracked|Поиск PR' %}
+  {% assign publication_nodes = staged_nodes | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in publication_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+    {% endfor %}
+  </ol>
+  <p class="release-result" data-lab-result role="status">PASS · staged diff разрешён. Можно искать существующий PR.</p>
+</figure>
+
+#### 2.9.14. Проверяем существующий PR и automation branch. {#publish-branch}
+
+{% capture publish_pr_66 %}{% raw %}find_existing_pr() {
+  local pull_response="$RUNNER_TEMP/zed-release-pulls.json"
+
+  github_api --fail --get \
+    --data-urlencode "state=open" \
+    --data-urlencode "base=main" \
+    --data-urlencode "head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" \
+    --data-urlencode "per_page=1" \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls" \
+    > "$pull_response"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_66 label="Параметры поиска открытого PR · строки 66–75" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=66 comment="#" %}
+
+{% capture publish_pr_93 %}{% raw %}assert_remote_branch_absent() {
+  local branch_response="$RUNNER_TEMP/zed-release-branch.json"
+  local branch_status
+
+  branch_status="$(github_api --output "$branch_response" \
+    --write-out '%{http_code}' \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH")"
+  case "$branch_status" in
+    404) ;;
+    200)
+      echo "ERROR: remote automation branch exists without an open PR: $BRANCH" >&2
+      exit 1
+      ;;
+    *)
+      echo "ERROR: could not determine remote branch state (HTTP $branch_status)" >&2
+      exit 1
+      ;;
+  esac
+}{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_93 label="Проверка удалённой automation-ветки · строки 93–111" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=93 comment="#" %}
+
+{% capture publish_pr_207 %}{% raw %}main() {
+  validate_release_diff
+  find_existing_pr
+  if test -n "$existing_pr_url"; then
+    # Повторный запуск с уже открытым automation PR завершается успешно:
+    # второй branch и второй PR для того же release не создаются.
+    printf 'Existing automation PR: %s\n' "$existing_pr_url" >> "$GITHUB_STEP_SUMMARY"
+    exit 0
+  fi
+
+  # Если ветка существует без открытого PR, её происхождение неизвестно;
+  # завершаемся fail-closed и не перезаписываем удалённую ветку.
+  assert_remote_branch_absent
+  commit_and_push_branch
+  create_draft_pr
+}
+
+main "$@"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_207 label="Порядок шагов: diff, PR, ветка и публикация · строки 207–224" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=207 comment="#" %}
+
+Сначала проходит проверка diff. Затем поиск ограничен открытыми PR с
+`base=main` и `head=владелец:automation-ветка`. Если найден URL,
+скрипт добавляет его в summary и завершается с кодом 0. Этот поиск
+проверяет критерии запроса и URL, а не заново проверяет содержимое PR.
+
+В отсутствие подходящего PR скрипт запрашивает ref automation-ветки.
+`404` позволяет продолжить, `200` означает существующую ветку, остальные
+HTTP-ответы останавливают запуск. Транспортная ошибка тоже прерывает шаг.
+У существующей ветки без открытого PR может быть своя история, поэтому
+перезаписывать её автоматически было бы небезопасно.
+
+<figure class="figure lesson-figure publication-lab" data-publish-branch aria-labelledby="publish-branch-title">
+  <h5 id="publish-branch-title">Куда ведёт поиск PR?</h5>
+  <div class="lab-controls" data-lab-controls hidden>
+    {% assign publication_scenarios = 'Открытый PR найден|PR нет, ветка отсутствует|PR нет, ветка существует|PR нет, lookup вернул HTTP 503' | split: '|' %}
+    <label>Сценарий <select>
+      {% for option in publication_scenarios %}<option value="{{ forloop.index0 }}">{{ option }}</option>{% endfor %}
+    </select></label>
+  </div>
+  <div class="publication-branch-tree">
+    <p><strong>Есть открытый PR для нужной head и base?</strong></p>
+    <ul role="list">
+      <li data-branch-route="existing"><strong>Да</strong> → записать URL · выход 0</li>
+      <li data-branch-route="lookup"><strong>Нет</strong> → запросить ref ветки
+        <ul role="list">
+          <li data-branch-route="absent"><strong>404</strong> → создать ветку</li>
+          <li data-branch-route="exists"><strong>200</strong> → остановиться</li>
+          <li data-branch-route="unknown"><strong>Другой ответ</strong> → остановиться</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+  <p class="release-result" data-lab-result role="status">PASS · URL открытого PR записан. Создание ветки и PR пропущено.</p>
+</figure>
+
+#### 2.9.15. Создаём commit, branch и Draft PR. {#publish-create-pr}
+
+{% capture publish_pr_113 %}{% raw %}restore_origin() {
+  git remote set-url origin "$original_remote"
+}
+
+commit_and_push_branch() {
+  git switch --create "$BRANCH"
+  git config user.name "github-actions[bot]"
+  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git diff --cached --check
+  if git diff --cached --quiet; then
+    echo "ERROR: release handoff would create an empty commit" >&2
+    exit 1
+  fi
+  git commit -m "update: Zed v${CANDIDATE_VERSION}"
+
+  original_remote="$(git remote get-url origin)"
+  trap restore_origin EXIT
+  git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+  git push origin "HEAD:refs/heads/$BRANCH"
+  restore_origin
+  trap - EXIT
+}{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_113 label="Локальный commit, push и восстановление origin · строки 113–134" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=113 comment="#" %}
+
+`git switch --create "$BRANCH"` создаёт локальную ветку от текущего HEAD
+и переключает checkout на неё. Скрипт задаёт имя и адрес бота для коммита,
+повторяет `git diff --cached --check` и отвергает пустой diff перед
+`git commit`. Для push он временно задаёт URL `origin` с токеном, потому
+что checkout запускался с `persist-credentials: false`.
+Refspec `HEAD:refs/heads/$BRANCH` отправляет текущий commit в конкретный
+ref удалённой ветки. Push идёт без force.
+
+После успешного push скрипт восстанавливает исходный URL и снимает
+`EXIT`-trap. Если push завершается ошибкой, trap пытается восстановить URL
+при выходе Bash. При принудительном завершении runner эта попытка может
+не состояться. Предварительный lookup и push без force — отдельные операции,
+поэтому это не атомарное создание ref.
+
+{% capture publish_pr_178 %}{% raw %}print(json.dumps({
+    "title": f"[release-bump] Zed v{version}",
+    "head": branch,
+    "base": "main",
+    "draft": True,
+    "body": body,
+}))
+PY
+  )"
+  github_api --fail \
+    --request POST \
+    --header "Content-Type: application/json" \
+    --data "$payload" \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls" \
+    > "$pr_response"
+  pr_url="$(python3 - "$pr_response" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response:
+    url = json.load(response).get("html_url")
+if not isinstance(url, str):
+    raise SystemExit("Created pull request has no URL")
+print(url)
+PY
+  )"
+  printf 'Created draft automation PR: %s\n' "$pr_url" >> "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_178 label="Payload Draft PR, POST и запись URL · строки 178–204" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=178 comment="#" %}
+
+После push Python формирует JSON, а запрос POST открывает PR с
+`head` automation-ветки, `base: main` и `draft: true`. Скрипт читает
+`html_url` из ответа и пишет его в summary. Если запрос PR или обработка
+ответа завершится ошибкой, отправленная ветка может остаться на GitHub.
+
+<figure class="figure lesson-figure">
+  <h5>Куда попал update commit?</h5>
+  <div class="publication-branch-tree">
+    <p><strong><code>main</code></strong> · базовый commit</p>
+    <ul role="list"><li><code>automation/zed-v1.28.1</code>
+      <ul role="list"><li><code>update: Zed v1.28.1</code> · новый commit</li></ul>
+    </li></ul>
+  </div>
+  <p class="release-result"><strong>Draft PR</strong> · <code>automation/zed-v1.28.1</code> → <code>main</code></p>
+  <figcaption>Публичный release уже доступен. Ebuild попадёт в main после ревью и слияния PR.</figcaption>
+</figure>
+
+#### 2.9.16. Что остаётся проверить человеку? {#publish-manual}
+
+{% capture publish_pr_149 %}{% raw %}version, branch, mode, publication, bundle = sys.argv[1:]
+metadata = distribution.read_metadata(Path(bundle) / distribution.names(version)[1], version)
+candidate = Path(f'app-editors/zed/zed-{version}.ebuild').read_text(encoding='utf-8')
+generated_terms = set(' '.join(metadata['licenses']).split())
+generated_only = sorted(generated_terms - sync.license_terms(candidate))
+candidate_only = sorted(sync.license_terms(candidate) - generated_terms)
+body = f'''## Automated validation
+
+- Stable release discovered
+- Crates release: https://github.com/vovanbl411/zed-overlay/releases/tag/crates-v{version}
+- Archive preparation: {mode}; publication: {publication}
+- Registry archive, Git sources, upstream snapshot and public download verified
+- Generated license expressions: {'; '.join(metadata['licenses'])}
+- Generated-only licenses for review: {', '.join(generated_only) or 'none'}
+- Candidate-only licenses for review: {', '.join(candidate_only) or 'none'}
+- Manifest generated
+- Portage dependency resolution passed
+- Wayland-only patch applies cleanly
+- Overlay policy passed
+- Sanitized handoff validated
+
+## Manual acceptance required before merge
+
+- [ ] Review upstream release notes
+- [ ] Review ebuild / Manifest / Wayland patch diff
+- [ ] Full `emerge -1av =app-editors/zed-{version}::zed-overlay`
+- [ ] Verify linkage (`scanelf` / `lddtree`) remains free of unwanted X11 runtime linkage
+- [ ] Verify native Wayland startup/runtime
+'''{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=publish_pr_149 label="Шаблон описания PR и чек-лист приёмки · строки 149–177" path="scripts/ci/publish-release-pr.sh" revision=publish_revision start=149 comment="#" %}
+
+На примере 1.28.1 заголовок будет `[release-bump] Zed v1.28.1`.
+Он указывает на upstream-релиз, а ссылка в описании ведёт на
+`crates-v1.28.1`. Ревьюер видит режим подготовки и фактический результат
+публикации, проверки архива, upstream snapshot и публичной загрузки.
+Ниже идут сгенерированные выражения лицензий и разницы набора терминов
+в metadata и ebuild. Это подсказки для дальнейшего просмотра, а правовая
+оценка требует отдельного анализа. Среди автоматических свидетельств
+также генерация Manifest, проверка разрешения зависимостей Portage,
+применимость Wayland-only patch, overlay policy и валидация sanitized handoff.
+
+<div class="panel publication-checklist" markdown="1">
+**Draft · [release-bump] Zed v1.28.1**
+
+`automation/zed-v1.28.1` → `main`
+
+**Automated validation** · пример результата generation:reuse
+
+- Переиспользован [crates-v1.28.1](https://github.com/vovanbl411/zed-overlay/releases/tag/crates-v1.28.1). Публичные файлы проверены.
+- В отчёт добавлены выражения лицензий и термины для ревью из JSON и ebuild.
+- Manifest сформирован. Проверки зависимостей Portage, применимости Wayland-only patch, overlay policy и sanitized handoff прошли.
+
+**Manual acceptance required before merge**
+
+- □ Прочитать release notes upstream.
+- □ Проверить diff ebuild, Manifest и Wayland patch.
+- □ Выполнить полную сборку `emerge -1av =app-editors/zed-1.28.1::zed-overlay`.
+- □ Проверить linkage через `scanelf` или `lddtree` на отсутствие нежелательных зависимостей X11.
+- □ Проверить нативный запуск и работу под Wayland.
 </div>
+
+Watcher проверяет разрешение зависимостей Portage. Сборка по команде из PR,
+проверка линковки и запуск выполняются вручную. Для overlay действует
+Wayland-only политика на всех этапах, включая ручную приёмку.
+
+**Исторический пример.** CHECKPOINT фиксирует два production-запуска для
+1.28.1. Первый опубликовал crates archive, затем проверка trailing whitespace
+остановила шаг PR до создания ветки. В истории репозитория есть коммит
+`7b2ab50` с исправлением пробелов. Следующий запуск переиспользовал
+опубликованный архив и открыл Draft PR #46. Так один crates release пережил
+ошибку на этапе Git-проверки. [Первый запуск](https://github.com/vovanbl411/zed-overlay/actions/runs/44142769356) ·
+[Повторный запуск](https://github.com/vovanbl411/zed-overlay/actions/runs/44148805330) ·
+[PR #46](https://github.com/vovanbl411/zed-overlay/pull/46).
+
+#### 2.9.17. Завершаем измерение времени workflow. {#publish-time}
+
+[Точные строки 233–240 в ранее разобранном шаге отчёта](#job3-report).
+
+[`started_at`](#step-time) снят в Job 1, поэтому расчёт охватывает
+выполнение заданий и ожидание между ними после снятия метки. Первоначальное
+ожидание runner до метки в сумму не входит. Как и в [отчёте Job 1](#check-time-report),
+регулярное выражение допускает строку из цифр, а разность вычисляется в секундах.
+`always()` даёт шагу возможность выполниться после отказа публикации внутри
+Job 3. Если весь Job 3 пропущен, runner перестал выполнять шаги или метка
+недоступна, строки может не быть. Наличие отчёта говорит только о замере.
+
+#### Как проходит один запуск {#publish-execution-map}
+
+<figure class="figure lesson-figure publication-lab" data-publish-map aria-labelledby="publish-map-title">
+  <h5 id="publish-map-title">От обнаружения версии до ручной приёмки</h5>
+  <div class="lab-controls" data-lab-controls hidden>
+    {% assign publication_scenarios = 'Нет новой версии|Только независимая проверка|Production · generation|Production · reuse|Job 2 отклонил handoff|main продвинулась до checkout|Конфликт crates release|Публичная проверка не прошла|Открытый PR уже существует|Staged diff отклонён после публикации' | split: '|' %}
+    <label>Сценарий <select>
+      {% for option in publication_scenarios %}<option value="{{ forloop.index0 }}"{% if forloop.index0 == 2 %} selected{% endif %}>{{ option }}</option>{% endfor %}
+    </select></label>
+  </div>
+  {% assign map_nodes = 'Job 1 · подготовка|Job 2 · проверка handoff|Job 3 · публикация' | split: '|' %}
+  <ol class="lesson-flow gate-flow publication-flow" role="list">
+    {% for node in map_nodes %}
+    <li class="flow-node" data-gate-state="PASS"><strong>{{ node }}</strong><span class="lesson-status" data-status="PASS">PASS</span>
+      <small data-map-reason>{% case forloop.index0 %}{% when 0 %}Кандидат проверен. Два набора загружены.{% when 1 %}Состав и согласованность handoff проверены.{% else %}Handoff применён, release опубликован и проверен. Открыт Draft PR.{% endcase %}</small>
+    </li>
+    {% endfor %}
+  </ol>
+  <dl class="publication-map-state">
+    <div><dt>Локальный checkout Job 3</dt><dd data-map-state>Кандидат применён и закоммичен в automation-ветку.</dd></div>
+    <div><dt>Actions artifacts</dt><dd data-map-state>Два набора загружены и скачаны обоими потребителями.</dd></div>
+    <div><dt>Crates release</dt><dd data-map-state>Опубликован, оба публичных файла проверены.</dd></div>
+    <div><dt>Удалённая ветка</dt><dd data-map-state>Создана automation/zed-v1.28.1.</dd></div>
+    <div><dt>PR</dt><dd data-map-state>Открыт новый Draft PR в main.</dd></div>
+    <div><dt>Ручная приёмка</dt><dd data-map-state>Ожидает проверки владельцем.</dd></div>
+  </dl>
+  <p class="release-result" data-lab-result role="status">Generation · опубликован crates release и открыт Draft PR.</p>
+  <figcaption>Карта использует сценарии <a href="{{ '/internals/01-release-watcher/' | relative_url }}#lab">общей архитектуры</a> и показывает состояние объектов после каждого пути публикации.</figcaption>
+</figure>
+
+Следующие главы начнутся с команд, которые YAML передаёт Bash, и проверок,
+которые Python выполняет перед записью файлов и публикацией релиза.

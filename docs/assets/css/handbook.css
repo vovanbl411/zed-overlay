@@ -943,3 +943,94 @@ meter::-webkit-meter-optimum-value { background: var(--accent); }
   .commit-graph { gap: .45rem .7rem; }
   .commit-node + .commit-node::before { width: .7rem; }
 }
+
+/* Job 3 keeps the same source, gate and tree components as the earlier jobs. */
+.publication-lab :is(select, label) { min-width: 0; max-width: 100%; }
+.publication-lab :is(select, code, .release-result) { overflow-wrap: anywhere; }
+.publication-flow { grid-template-columns: minmax(0, 1fr); gap: .95rem; margin-block: 1rem; }
+.publication-flow li + li::before {
+  inset: auto auto 100% 1rem;
+  transform: none;
+  content: "↓" / "";
+}
+.publication-flow [data-gate-state="SKIP"]::before { color: var(--muted); }
+.publication-flow [data-gate-state="FAIL"] + [data-gate-state="SKIP"]::before { content: "×" / ""; }
+.publication-flow small { overflow-wrap: anywhere; }
+
+[data-publication-eval="PASS"] { border-inline-start: 2px solid var(--ok); }
+[data-publication-eval="FAIL"] { border-inline-start: 2px solid var(--error); background: var(--accent-fill); }
+[data-publication-eval="SKIP"] { border-inline-start: 2px dashed var(--rule); }
+[data-publication-eval="SKIP"] code { color: var(--muted); }
+
+.publication-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.publication-code code { white-space: inherit; }
+.publication-trees, .publication-pair, .publication-map-state {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  margin-block: .75rem;
+}
+.publication-trees > div { min-width: 0; overflow-wrap: anywhere; }
+.publication-trees .artifact-tree { margin-block: 0; }
+.publication-effects .is-selected { border-inline-start: 2px solid var(--accent); padding-inline-start: .4rem; }
+.publication-pair > div, .publication-map-state > div, .publication-inputs > div {
+  border-inline-start: 2px solid var(--rule);
+  padding-inline-start: .7rem;
+  overflow-wrap: anywhere;
+}
+:is(.publication-pair, .publication-map-state, .publication-inputs) dt { color: var(--muted); font-weight: 650; }
+:is(.publication-pair, .publication-map-state, .publication-inputs) dd { margin-inline-start: 0; }
+.publication-inputs { display: grid; gap: .7rem; }
+.publication-inputs dd::before { content: "↳ " / ""; color: var(--accent); }
+
+.publish-revision [data-publish-target] { grid-row: 2; }
+.publish-revision[data-publish-at="C"] [data-publish-target] { grid-column: 3; }
+.publication-branch-tree ul {
+  list-style: none;
+  padding-inline-start: 1rem;
+  border-inline-start: 1px solid var(--rule);
+  margin-block: .45rem;
+}
+.publication-branch-tree li { position: relative; padding-inline-start: .35rem; margin-block: .45rem; }
+.publication-branch-tree li::before {
+  position: absolute;
+  inset: .85em 100% auto auto;
+  width: 1rem;
+  border-block-start: 1px solid var(--rule);
+  content: "";
+}
+.publication-branch-tree li.is-selected { border-inline-start: 2px solid var(--accent); }
+.publication-branch-tree li.is-selected > strong { text-decoration: underline; text-underline-offset: .16em; }
+
+@media (min-width: 700px) {
+  .publication-flow { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+  /* Keep connectors on one continuous row for the short, fixed-width flows. */
+  .publication-flow:has(> :nth-child(4)) { grid-template-columns: minmax(0, 1fr); }
+  .publication-flow:not(:has(> :nth-child(4))) li + li::before {
+    inset: .55rem 100% auto auto;
+    transform: none;
+    content: "→" / "";
+  }
+}
+@media (max-width: 600px) {
+  .publication-trees, .publication-map-state { grid-template-columns: minmax(0, 1fr); }
+}
+
+.publication-flow.gate-flow li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: .25rem .55rem;
+}
+.publication-flow.gate-flow li small { grid-column: 1 / -1; }
+.publication-race-rails > div > p { margin-bottom: 0; }
+@media (min-width: 65rem) {
+  .publication-race-rails {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1.5rem;
+  }
+  .publication-race-rails > div + div { border-inline-start: 1px dashed var(--rule); padding-inline-start: 1.5rem; }
+}
+@media (min-width: 700px) {
+  [data-publish-map] .publication-flow li { grid-template-columns: minmax(0, 1fr); }
+}
