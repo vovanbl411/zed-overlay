@@ -1,0 +1,23 @@
+{%- assign preview_lines = include.source | split: '
+' -%}
+{%- assign preview_end = include.start | plus: preview_lines.size | minus: 1 -%}
+<details class="source-preview" data-source-preview{% if include.open %} open{% endif %}>
+  <summary>{{ include.label | escape }}</summary>
+  <div class="source-preview-meta">
+    <code>{{ include.path | escape }}</code>
+    <span>Ревизия <code>{{ include.revision }}</code></span>
+  </div>
+  {% if include.panels %}
+  <div class="selector" data-selector markdown="1">
+  {% endif %}
+  {% include source-lines.html source=include.source start=include.start label=include.label comment=include.comment interactive=include.panels %}
+  {% if include.panels %}
+  {{ include.panels }}
+  </div>
+  {% endif %}
+  <div class="source-preview-actions">
+    <a href="https://github.com/vovanbl411/zed-overlay/blob/{{ include.revision }}/{{ include.path | escape }}#L{{ include.start }}{% if preview_end != include.start %}-L{{ preview_end }}{% endif %}">Открыть на GitHub</a>
+    <button type="button" data-copy-source hidden>Копировать код</button>
+    <span data-copy-status role="status"></span>
+  </div>
+</details>
