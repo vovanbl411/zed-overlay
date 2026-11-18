@@ -7,6 +7,10 @@
   <link rel="stylesheet" href="{{ '/assets/css/handbook.css' | relative_url }}">
   <link rel="icon" href="data:,">
   <script type="module" src="{{ '/assets/js/handbook.js' | relative_url }}"></script>
+  {% if page.shell_labs %}
+  <link rel="stylesheet" href="{{ '/assets/css/shell-labs.css' | relative_url }}">
+  <script type="module" src="{{ '/assets/js/shell-labs.js' | relative_url }}"></script>
+  {% endif %}
 </head>
 <body>
   <a class="skip-link" href="#content">К содержанию</a>

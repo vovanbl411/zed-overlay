@@ -624,7 +624,7 @@ function initExpression(figure) {
   controls.hidden = false;
 }
 
-function traceReleaseGates(figure, count, failure) {
+export function traceReleaseGates(figure, count, failure) {
   const states = Array.from({length: count}, (_, index) => {
     if (failure === -1 || index < failure) return 'PASS';
     return index === failure ? 'FAIL' : 'SKIP';
@@ -632,7 +632,7 @@ function traceReleaseGates(figure, count, failure) {
   renderReleaseGates(figure, states);
 }
 
-function renderReleaseGates(figure, states) {
+export function renderReleaseGates(figure, states) {
   figure.querySelectorAll('.flow-node[data-gate-state]').forEach((node, index) => {
     const status = states[index];
     node.dataset.gateState = status;

@@ -2463,17 +2463,7 @@ Job 2 запускает доверенный код валидаторов из
 - `-o pipefail` возвращает из конвейера статус самой правой команды с
   ненулевым статусом. Если все успешны, статус равен нулю.
 
-<figure class="figure lesson-figure" data-handoff-bash aria-labelledby="handoff-bash-title">
-  <h4 id="handoff-bash-title">Что меняется при включении опции?</h4>
-  <div class="lab-controls release-controls" data-lab-controls hidden>
-    <label>Опция <select data-bash-option><option value="e">-e · errexit</option><option value="u">-u · nounset</option><option value="pipefail">-o pipefail</option></select></label>
-    <label><input type="checkbox" data-bash-enabled checked> Опция включена</label>
-  </div>
-  <pre><code data-bash-code>false
-echo "Продолжаем"</code></pre>
-  <p data-lab-result role="status">Код 1 · Bash прерывает скрипт после false, echo пропущен.</p>
-  <figcaption>Модель показывает заранее заданные команды. В каждом примере остальные опции отключены.</figcaption>
-</figure>
+{% include bash-options.html %}
 
 Без `-e` в этом примере выполняется `echo`. Без `-u` незаданная переменная
 разворачивается в пустую строку. Без `pipefail` статус `false | cat` определяет
@@ -4203,5 +4193,6 @@ Job 3. Если весь Job 3 пропущен, runner перестал вып�
   <figcaption>Карта использует сценарии <a href="{{ '/internals/01-release-watcher/' | relative_url }}#lab">общей архитектуры</a> и показывает состояние объектов после каждого пути публикации.</figcaption>
 </figure>
 
-Следующие главы начнутся с команд, которые YAML передаёт Bash, и проверок,
-которые Python выполняет перед записью файлов и публикацией релиза.
+В задании `check` за подготовку кандидата отвечает команда из строки 60.
+В главе [«Bash — подготовка кандидата Zed»]({{ '/internals/02-shell-scripts/validate-release-candidate/' | relative_url }})
+проследим, как она запускается и почему подготовка идёт в отдельном каталоге.

@@ -1,0 +1,48 @@
+<div class="figure lesson-figure shell-lab" data-shell-lab="candidate-validation" markdown="1">
+<h3>Где остановится проверка путей</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Изменения после подготовки <select name="scenario">
+    <option value="existing">Ebuild, patch уже есть</option><option value="pair">Новые ebuild и patch</option><option value="missing">Новый ebuild без patch</option><option value="unrelated">Ebuild и лишний файл, patch есть</option><option value="three">Ebuild, patch и третий файл</option><option value="two-ebuilds">Два подходящих ebuild</option><option value="no-ebuild">Нет подходящего ebuild</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">PASS · добавлен только ebuild. Ожидаемый patch уже был в дереве. Можно вычислить atom и версию.</p>
+
+{% assign gates = '20 · Найти ebuild|21 · Вывести имя patch|22 · Проверить ebuild|23 · Проверить patch|25 · Сверить один путь|27 · Проверить число путей|28–30 · Сравнить два списка|33–36 · Вычислить идентификаторы' | split: '|' %}
+<ol class="shell-gates candidate-gates" aria-label="Проверки путей по порядку" role="list">
+  {% for gate in gates %}
+  {% assign state = 'PASS' %}{% if forloop.index == 6 or forloop.index == 7 %}{% assign state = 'SKIP' %}{% endif %}
+  <li class="flow-node" data-gate-state="{{ state }}"><strong>{{ gate }}</strong><span class="lesson-status" data-status="{{ state }}">{{ state }}</span></li>
+  {% endfor %}
+</ol>
+
+<div class="shell-file-grid">
+  <div class="workspace"><strong>До · <code>app-editors/zed/</code></strong><pre><code data-validation-before>├── Manifest
+├── files/
+│   ├── zed-1.28.1-wayland-only.patch
+│   └── zed-1.29.0-wayland-only.patch
+└── zed-1.28.1.ebuild</code></pre></div>
+  <div class="workspace workspace-candidate"><strong>После · <code>app-editors/zed/</code></strong><pre><code data-validation-after>├── Manifest
+├── files/
+│   ├── zed-1.28.1-wayland-only.patch
+│   └── zed-1.29.0-wayland-only.patch
+├── zed-1.28.1.ebuild
+└── zed-1.29.0.ebuild [новый]</code></pre></div>
+</div>
+
+<div class="candidate-merge"><span aria-hidden="true">↓</span> <code>comm -z -13</code> → <code>mapfile</code></div>
+<div class="workspace"><strong>Массив <code>candidate_paths</code></strong><pre><code data-validation-array>[0] app-editors/zed/zed-1.29.0.ebuild</code></pre></div>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Результат <code>grep</code></strong><pre><code data-validation-ebuild>app-editors/zed/zed-1.29.0.ebuild</code></pre></div>
+  <div class="workspace"><strong>Производный <code>candidate_patch</code></strong><pre><code data-validation-patch>app-editors/zed/files/zed-1.29.0-wayland-only.patch</code></pre></div>
+</div>
+<p class="candidate-branch" data-validation-branch>Ветка одного пути · проверка равенства на строке 25.</p>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Фактический список для <code>cmp</code></strong><pre><code data-validation-actual>Не вычислялся</code></pre></div>
+  <div class="workspace"><strong>Ожидаемый список для <code>cmp</code></strong><pre><code data-validation-expected>Не вычислялся</code></pre></div>
+</div>
+
+<div class="workspace"><strong>Идентификаторы после проверок</strong><pre><code data-validation-identifiers>=app-editors/zed-1.29.0::zed-overlay
+1.29.0</code></pre></div>
+
+{% include source-preview.html source=candidate_source label="Вся проверка путей · строки 20–37" path=script revision=revision start=20 open=true %}
+</div>

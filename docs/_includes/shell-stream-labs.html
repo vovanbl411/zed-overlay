@@ -1,0 +1,51 @@
+<div class="figure lesson-figure shell-lab" data-shell-lab="streams" markdown="1">
+<h3>Где появится строка Python</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Событие <select name="message"><option value="info">Информация · STDOUT 1</option><option value="release">Result: new-release · STDOUT 1</option><option value="error">Ошибка · STDERR 2</option></select></label>
+</div>
+
+<p class="model-result" role="status">FD 1 · строку получают оба tee, оба файла и консоль runner. Прежний журнал заменён, заголовок сводки сохранён.</p>
+
+{% include source-preview.html source=include.pipeline label="Маршрут стандартного вывода · строка 136" path=include.script revision=include.revision start=136 open=true %}
+
+<ol class="lesson-flow shell-sequence shell-pipeline" role="list" aria-label="Маршруты стандартного вывода и ошибок">
+  <li class="flow-node"><span class="shell-pipe-label">0 · STDIN</span><strong>Python</strong><small>Вход вне конвейера</small>
+    <div class="shell-stream-branch shell-stderr" data-stream="stderr"><small>2 STDERR ↓</small><strong>Поток ошибок runner</strong><code data-output="stderr">—</code></div>
+  </li>
+  <li class="flow-node" data-stream="stdout"><span class="shell-pipe-label">1 → 0</span><strong>Первый <code>tee</code></strong><small>stdin → stdout и файл</small>
+    <div class="shell-stream-branch"><small>Запись ↓</small><code>prepare_log</code></div>
+  </li>
+  <li class="flow-node" data-stream="stdout"><span class="shell-pipe-label">1 → 0</span><strong>Второй <code>tee</code></strong><small>stdin → stdout и файл</small>
+    <div class="shell-stream-branch"><small>Дописывание ↓</small><strong>Файл сводки</strong></div>
+  </li>
+  <li class="flow-node" data-stream="stdout"><span class="shell-pipe-label">1 → лог</span><strong>Консоль runner</strong><code data-output="console">Пример: подготовка началась</code></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace"><strong><code>prepare_log</code></strong><small>До: старая строка журнала</small><small>После открытия и записи</small><pre><code data-output="log">Пример: подготовка началась</code></pre></div>
+  <div class="workspace"><strong><code>GITHUB_STEP_SUMMARY</code></strong><small>До: заголовок сводки</small><small>После открытия и записи</small><pre><code data-output="summary">Заголовок сводки
+Пример: подготовка началась</code></pre></div>
+</div>
+<p class="figure-caption">Модель предполагает, что оба <code>tee</code> открыли файлы. Примеры информации и ошибки вымышлены. <code>Result: new-release</code> — маркер из условия в строке 142.</p>
+</div>
+
+<div class="figure lesson-figure shell-lab" data-shell-lab="pipeline" markdown="1">
+<h3>Какой статус получает Bash</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Python <select name="python"><option value="0">0 · успех</option><option value="3">3 · ошибка</option></select></label>
+  <label>Первый tee <select name="first"><option value="0">0 · успех</option><option value="1">1 · ошибка</option></select></label>
+  <label>Второй tee <select name="second"><option value="0">0 · успех</option><option value="2">2 · ошибка</option></select></label>
+  <label><input type="checkbox" name="pipefail" checked> pipefail включён</label>
+</div>
+
+<p class="model-result" role="status">Конвейер вернул 0. При включённом errexit строка 137 достижима.</p>
+
+{% include source-preview.html source=include.pipeline label="Команды конвейера · строка 136" path=include.script revision=include.revision start=136 open=true %}
+{% include source-preview.html source=include.next label="Следующая команда · строка 137" path=include.script revision=include.revision start=137 open=true %}
+
+<div class="shell-processes" role="group" aria-label="Статусы процессов, работающих одновременно">
+  <div class="flow-node"><strong>Python</strong><span data-process-status>0</span></div>
+  <div class="flow-node"><strong>Первый <code>tee</code></strong><span data-process-status>0</span></div>
+  <div class="flow-node"><strong>Второй <code>tee</code></strong><span data-process-status>0</span></div>
+</div>
+<p class="figure-caption">Процессы конвейера могут выполняться одновременно. Коды в модели заданы заранее и служат для сравнения правил вычисления общего статуса.</p>
+</div>
