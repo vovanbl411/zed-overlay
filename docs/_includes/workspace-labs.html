@@ -1,0 +1,222 @@
+{% case include.lab %}
+{% when 'policy-input' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="policy-input" markdown="1">
+<h3>Откуда Python берёт файлы и имена путей</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Режим <select name="scenario">
+    <option value="checkout">Обычный Git checkout</option>
+    <option value="saved">Копия со списком путей</option>
+    <option value="no-option">Копия без опции файла путей</option>
+    <option value="unreadable">Файл указан, но отсутствует</option>
+    <option value="encoding">Файл с неверным UTF-8</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">PASS · файлы под корнем валидны, Git прочитал пути из индекса checkout.</p>
+
+<div class="shell-file-grid workspace-inputs">
+  <div class="workspace">
+    <strong>Файловая система · <code>--root</code></strong>
+    <small data-policy-root>Исходный checkout</small>
+    <pre><code>profiles/repo_name
+metadata/layout.conf
+app-editors/zed/
+├── metadata.xml
+├── Manifest
+├── zed-1.28.1.ebuild<span data-policy-added hidden>
+├── zed-1.29.0.ebuild</span>
+└── files/<span class="workspace-tree-child" data-policy-previous-patch>└── zed-1.28.1-wayland-only.patch</span><span class="workspace-tree-child" data-policy-candidate-patch hidden>└── zed-1.29.0-wayland-only.patch</span></code></pre>
+    <small data-policy-files-state>Структура, ebuild и patch проверены до запроса к Git.</small>
+  </div>
+  <div class="workspace">
+    <strong>Отслеживаемые пути · <code>tracked_paths</code></strong>
+    <small data-policy-paths-origin>Индекс исходного checkout</small>
+    <pre><code data-policy-paths-input>git ls-files -z</code></pre>
+    <small data-policy-paths-state>Git вызван, пути прочитаны. Правило кеша выполнено.</small>
+  </div>
+</div>
+<p class="workspace-merge">↓ Оба входа нужны <code>overlay_policy.py</code></p>
+<div class="workspace shell-stream-branch"><strong>Python → stdout</strong><pre><code data-policy-output>overlay policy: OK (1 Zed ebuild(s))</code></pre></div>
+
+{% include source-preview.html source=policy_pick label="Выбор входа · строки 170–176" path=policy revision=revision start=170 open=true %}
+{% include source-preview.html source=policy_tracked label="Выбор источника для правила cache · строки 146–150" path=policy revision=revision start=146 open=true %}
+{% include source-preview.html source=policy_git label="Чтение из Git · строки 28–41" path=policy revision=revision start=28 open=true %}
+{% include source-preview.html source=policy_file label="Чтение из файла · строки 44–58" path=policy revision=revision start=44 open=true %}
+</div>
+
+{% when 'policy-rules' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="policy-rules" markdown="1">
+<h3>Какое правило видит изменение</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Сценарий <select name="scenario">
+    <option value="valid">Новый ebuild и его patch на месте</option>
+    <option value="reference">В новом ebuild нет ожидаемой записи PATCHES</option>
+    <option value="patch">Нет patch для нового ebuild</option>
+    <option value="tracked-cache">В списке путей есть запись md5-cache</option>
+    <option value="disk-cache">Файл md5-cache есть только на диске</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">PASS · новый ebuild найден на диске и прошёл проверку вместе со своим patch. Правило кеша также выполнено.</p>
+
+<div class="shell-file-grid workspace-inputs">
+  <div class="workspace">
+    <strong>Файлы под <code>--root</code></strong>
+    <pre><code>profiles/repo_name
+metadata/layout.conf
+app-editors/zed/
+├── metadata.xml
+├── Manifest
+├── zed-1.28.1.ebuild
+<span data-rules-ebuild>├── zed-1.29.0.ebuild</span>
+└── files/<span class="workspace-tree-child">├── zed-1.28.1-wayland-only.patch</span><span class="workspace-tree-child" data-rules-patch>└── zed-1.29.0-wayland-only.patch</span><span data-rules-disk-cache hidden>
+metadata/md5-cache/zed-example</span></code></pre>
+    <small data-rules-disk-rule>134–144 · Найти ebuild, проверить PATCHES и patch.</small>
+  </div>
+  <div class="workspace">
+    <strong>Сохранённые пути · фрагмент</strong>
+    <pre><code>profiles/repo_name\0
+metadata/layout.conf\0
+app-editors/zed/zed-1.28.1.ebuild\0<span data-rules-tracked-cache hidden>
+metadata/md5-cache/zed-example\0</span></code></pre>
+    <small data-rules-path-rule>148–150 · Проверить отслеживаемые пути. \0 обозначает NUL.</small>
+  </div>
+</div>
+
+<ol class="shell-gates" aria-label="Правила для двух входов" role="list">
+  <li class="flow-node" data-gate-state="PASS"><strong>134–144 · Ebuild и patch на диске</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><strong>148–150 · Кеш в списке путей</strong><span class="lesson-status" data-status="PASS">PASS</span></li>
+</ol>
+<div class="workspace shell-stream-branch"><strong>Python → stdout</strong><pre><code data-policy-output>overlay policy: OK (2 Zed ebuild(s))</code></pre></div>
+
+{% include source-preview.html source=policy_ebuilds label="Ebuild, patch и отслеживаемый cache · строки 134–152" path=policy revision=revision start=134 open=true %}
+</div>
+
+{% when 'policy-result' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="policy-result" markdown="1">
+<h3>Что происходит после завершения Python</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Сценарий <select name="scenario">
+    <option value="ok">Python успешен, .git отсутствует</option>
+    <option value="policy">Python обнаружил нарушение политики</option>
+    <option value="python-error">Другая ошибка Python</option>
+    <option value="git-path">Python успешен, но появился .git</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">Python вернул 0. Обе ветки then выполнены, следующая функция вызывается на строке 158.</p>
+
+<ol class="shell-gates" aria-label="Ветки проверки" role="list">
+  <li class="flow-node" data-gate-state="PASS"><strong>61–68 · Статус Python</strong><small data-python-branch>0 → then · 64</small><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><strong>70–75 · Проверка <code>.git</code></strong><small data-git-path-branch>then · 71</small><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><strong>158 · Вызов проверки checkout</strong><small>Достижимость вызова</small><span class="lesson-status" data-status="PASS">PASS</span></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace shell-stream-branch"><strong>stdout</strong><pre><code data-workspace-stdout>overlay policy: OK (2 Zed ebuild(s))
+Overlay policy for disposable workspace: OK
+Git-less workspace after overlay policy: OK</code></pre></div>
+  <div class="workspace shell-stream-branch shell-stderr"><strong>stderr</strong><pre><code data-workspace-stderr>—</code></pre></div>
+</div>
+
+{% include source-preview.html source=policy_run label="Статус Python и проверка .git · строки 61–76" path=script revision=revision start=61 open=true %}
+</div>
+
+{% when 'short-status' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="short-status" markdown="1">
+<h3>Что Git поместит в <code>source_status</code></h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Checkout <select name="scenario">
+    <option value="clean">Чистый</option>
+    <option value="unstaged">Правка в рабочем дереве</option>
+    <option value="staged">Правка добавлена в индекс</option>
+    <option value="both">Правки в индексе и рабочем дереве</option>
+    <option value="added">Новый файл в индексе</option>
+    <option value="deleted">Отслеживаемый файл удалён с диска</option>
+    <option value="untracked">Неигнорируемый неотслеживаемый файл</option>
+    <option value="ignored">Игнорируемый неотслеживаемый файл</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">PASS · test -z вернул 0. Bash печатает Source workspace remains clean: OK.</p>
+
+<div class="workspace"><strong>Путь</strong><code data-status-path>app-editors/zed/Manifest</code></div>
+<ol class="lesson-flow three-stage-flow workspace-status-flow" role="list" aria-label="Состояние выбранного файла">
+  <li class="flow-node"><strong>HEAD</strong><small data-status-head>Версия A</small></li>
+  <li class="flow-node"><strong>Индекс</strong><small data-status-index>Версия A</small></li>
+  <li class="flow-node"><strong>Рабочее дерево</strong><small data-status-worktree>Версия A</small></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace">
+    <strong>Строка <code>git status --short</code></strong>
+    <pre><code data-status-line>—</code></pre>
+    <small data-status-x>X · строки нет</small>
+    <small data-status-y>Y · строки нет</small>
+  </div>
+  <div class="workspace">
+    <strong>Значение <code>source_status</code></strong>
+    <pre><code data-status-captured>""</code></pre>
+    <small data-status-test><code>test -z</code> → 0</small>
+  </div>
+</div>
+
+{% include source-preview.html source=status_check label="От захвата stdout до результата · строки 81–88" path=script revision=revision start=81 open=true %}
+</div>
+
+{% when 'status-diagnostics' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="status-diagnostics" markdown="1">
+<h3>Какие строки попадут в stderr</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Строк на входе <select name="length">
+    <option value="0">0</option><option value="3">3</option><option value="10">10</option>
+    <option value="25">25</option><option value="30" selected>30</option><option value="50">50</option>
+  </select></label>
+  <label><input type="checkbox" name="quiet" checked> Использовать <code>-n</code></label>
+</div>
+<p class="model-result" role="status">Строк на входе: 30. Строк в stderr: 25.</p>
+<ol class="shell-pipeline lesson-flow three-stage-flow workspace-status-flow" role="list" aria-label="Поток диагностического отчёта">
+  <li class="flow-node"><strong>stdin · отчёт</strong><small data-sed-input-count>30 строк</small></li>
+  <li class="flow-node"><strong><code data-sed-command>sed -n '1,25p'</code></strong><small data-sed-range>Выбраны 1–25</small></li>
+  <li class="flow-node"><strong><code>&gt;&amp;2</code> · stderr</strong><small data-sed-output-count>25 строк выведено</small></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Вход · с номерами</strong><pre class="workspace-report" tabindex="0" aria-label="Входной отчёт"><code data-sed-input>{% for i in (1..30) %}{{ i }}  ?? unexpected-{{ i }}.txt{% unless forloop.last %}
+{% endunless %}{% endfor %}</code></pre></div>
+  <div class="workspace"><strong>Вывод · без номеров</strong><pre class="workspace-report" tabindex="0" aria-label="Вывод sed"><code data-sed-output>{% for i in (1..25) %}?? unexpected-{{ i }}.txt{% unless forloop.last %}
+{% endunless %}{% endfor %}</code></pre></div>
+</div>
+<p class="figure-caption" data-sed-omitted>В stderr отсутствуют входные строки 26–30.</p>
+{% include source-preview.html source=status_diagnostic label="Конвейер в скрипте · строка 86" path=script revision=revision start=86 open=true %}
+<p class="figure-caption">Без <code>-n</code> команда <code>p</code> печатает выбранную строку, а затем sed печатает её ещё раз автоматически. Нулевой вход здесь — самостоятельный опыт с пустым stdin. В скрипте при чистом checkout конвейер пропускается.</p>
+</div>
+
+{% when 'workspace-gates' %}
+<div class="figure lesson-figure shell-lab workspace-lab" data-shell-lab="workspace-gates" markdown="1">
+<h3>До какой строки дойдёт скрипт</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Сценарий <select name="scenario">
+    <option value="ok">Обе проверки успешны</option>
+    <option value="policy">Нарушена политика overlay</option>
+    <option value="git-path">После Python найден .git</option>
+    <option value="git-error">Команда git status завершилась ошибкой</option>
+    <option value="tracked">Git сообщил о правке отслеживаемого файла</option>
+    <option value="untracked">Git сообщил о неотслеживаемом файле</option>
+  </select></label>
+</div>
+<p class="model-result" role="status">Все проверки выполнены. Скрипт доходит до условия на строке 160.</p>
+
+<ol class="shell-gates" aria-label="Порядок проверок двух рабочих каталогов" role="list">
+  <li class="flow-node" data-gate-state="PASS"><div><strong>61 · Запустить <code>overlay_policy.py</code></strong><small>Временная копия и файл путей</small></div><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><div><strong>70 · Проверить путь <code>.git</code></strong><small>Временная копия</small></div><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><div><strong>81 · Получить <code>git status --short</code></strong><small>Исходный checkout</small></div><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><div><strong>82 · Проверить пустой статус</strong><small>Вывод Git для исходного checkout</small></div><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><div><strong>160 · Дойти до условия завершения</strong><small>Достижимость строки</small></div><span class="lesson-status" data-status="PASS">PASS</span></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace shell-stream-branch"><strong>stdout</strong><pre><code data-workspace-stdout>overlay policy: OK (2 Zed ebuild(s))
+Overlay policy for disposable workspace: OK
+Git-less workspace after overlay policy: OK
+Source workspace remains clean: OK</code></pre></div>
+  <div class="workspace shell-stream-branch shell-stderr"><strong>stderr</strong><pre><code data-workspace-stderr>—</code></pre></div>
+</div>
+
+{% include source-preview.html source=policy_run label="Проверки временной копии · строки 61–76" path=script revision=revision start=61 open=true %}
+{% include source-preview.html source=status_check label="Проверка исходного checkout · строки 81–88" path=script revision=revision start=81 open=true %}
+{% include source-preview.html source=completion label="Условие завершения · строка 160" path=script revision=revision start=160 open=true %}
+</div>
+{% endcase %}

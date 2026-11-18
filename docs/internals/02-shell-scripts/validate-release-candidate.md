@@ -28,6 +28,15 @@ sections:
   - { id: independent-crates, label: "3.19. Передаём кандидата следующему скрипту" }
   - { id: manifest-lifecycle, label: "3.20. Проверяем результат контейнерной валидации" }
   - { id: up-to-date, label: "3.21. Что происходит, если пакет уже актуален?" }
+  - { id: workspace-convergence, label: "3.22. Возвращаемся к общим проверкам" }
+  - { id: policy-arguments, label: "3.23. Передаём параметры валидатору Python" }
+  - { id: gitless-policy, label: "3.24. Как проверить overlay без Git?" }
+  - { id: policy-rules, label: "3.25. Что именно проверяет overlay policy?" }
+  - { id: policy-result, label: "3.26. Обрабатываем результат проверки" }
+  - { id: source-workspace, label: "3.27. Проверяем исходный checkout" }
+  - { id: short-status, label: "3.28. Читаем вывод git status" }
+  - { id: status-diagnostics, label: "3.29. Ограничиваем диагностический вывод через sed" }
+  - { id: workspace-gates, label: "3.30. Завершаем проверку рабочих пространств" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -602,8 +611,6 @@ app-editors/zed/zed-1.28.1.ebuild ␀</code></pre>
     test "${#candidate_paths[@]}" -eq 0
   fi{% endcapture %}
 {% capture current_test %}    test "${#candidate_paths[@]}" -eq 0{% endcapture %}
-{% capture next_phase %}  validate_disposable_policy "$disposable_workspace" "$tracked_paths"
-  assert_source_workspace_clean{% endcapture %}
 {% capture container_args %}version="${1:?candidate version required}"
 candidate="${2:?candidate ebuild required}"
 patch="${3:?candidate patch required}"
@@ -1156,9 +1163,442 @@ fi
 </div>
 
 Ноль добавленных путей допускает изменения содержимого уже
-существующего файла или удаление пути. После успешной проверки
-массива, как и после успешной проверки нового кандидата, поток
-возвращается к общим проверкам. С этих двух вызовов начнётся
-фаза 3.3.
+существующего файла или удаление пути. После проверки массива
+ветка возвращается к общему потоку.
 
-{% include source-preview.html source=next_phase label="Общие проверки · строки 157–158" path=script revision=revision start=157 open=true %}
+{% assign policy = 'scripts/overlay_policy.py' %}
+{% capture policy_git %}def git_tracked_paths(repository_root: Path) -> set[str]:
+    """Return paths tracked by Git, relative to the repository root."""
+    result = subprocess.run(
+        ("git", "-C", str(repository_root), "ls-files", "-z"),
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise OverlayPolicyError("Cannot inspect Git-tracked paths.")
+    return {
+        path.decode("utf-8")
+        for path in result.stdout.split(b"\0")
+        if path
+    }{% endcapture %}
+{% capture policy_file %}def tracked_paths_from_file(path: Path) -> set[str]:
+    """Read NUL-separated Git-tracked paths from a UTF-8 file."""
+    try:
+        contents = path.read_bytes()
+    except OSError as error:
+        raise OverlayPolicyError(
+            f"Could not read tracked paths file: {path}."
+        ) from error
+    try:
+        decoded = contents.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise OverlayPolicyError(
+            f"Tracked paths file is not valid UTF-8: {path}."
+        ) from error
+    return {tracked_path for tracked_path in decoded.split("\0") if tracked_path}{% endcapture %}
+{% capture policy_pick %}    try:
+        tracked_paths = (
+            tracked_paths_from_file(args.tracked_paths_file)
+            if args.tracked_paths_file is not None
+            else None
+        )
+        ebuilds = validate_overlay(args.root, tracked_paths=tracked_paths){% endcapture %}
+{% capture policy_tracked %}    # В git archive нет .git. CI передаёт сохранённый список tracked-файлов,
+    # чтобы policy проверяла тот же снимок репозитория и в disposable workspace.
+    tracked = set(tracked_paths) if tracked_paths is not None else git_tracked_paths(repository_root)
+    if any(path == "metadata/md5-cache" or path.startswith("metadata/md5-cache/") for path in tracked):
+        raise OverlayPolicyError("Pregenerated metadata/md5-cache must not be tracked by Git."){% endcapture %}
+{% capture policy_ebuilds %}    ebuilds = tuple(sorted(package_dir.glob("zed-*.ebuild")))
+    if not ebuilds:
+        raise OverlayPolicyError(f"No Zed ebuild found in {PACKAGE_DIRECTORY}.")
+    for ebuild_path in ebuilds:
+        if not PATCH_REFERENCE.search(ebuild_path.read_text(encoding="utf-8")):
+            raise OverlayPolicyError(
+                f"Ebuild must apply the Wayland-only patch through PATCHES: {ebuild_path}."
+            )
+        patch_path = package_dir / "files" / f"{ebuild_path.stem}-wayland-only.patch"
+        require_file(patch_path)
+        validate_wayland_patch(patch_path)
+
+    # В git archive нет .git. CI передаёт сохранённый список tracked-файлов,
+    # чтобы policy проверяла тот же снимок репозитория и в disposable workspace.
+    tracked = set(tracked_paths) if tracked_paths is not None else git_tracked_paths(repository_root)
+    if any(path == "metadata/md5-cache" or path.startswith("metadata/md5-cache/") for path in tracked):
+        raise OverlayPolicyError("Pregenerated metadata/md5-cache must not be tracked by Git.")
+
+    return ebuilds{% endcapture %}
+{% capture policy_run %}  if PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py \
+    --root "$disposable_workspace" \
+    --tracked-paths-file "$tracked_paths"; then
+    echo "Overlay policy for disposable workspace: OK"
+  else
+    echo "ERROR: overlay policy failed for disposable workspace" >&2
+    exit 1
+  fi
+
+  if test ! -e "$disposable_workspace/.git"; then
+    echo "Git-less workspace after overlay policy: OK"
+  else
+    echo "ERROR: disposable workspace gained .git after overlay policy" >&2
+    exit 1
+  fi
+}{% endcapture %}
+{% capture status_check %}  source_status="$(git -C "$GITHUB_WORKSPACE" status --short)"
+  if test -z "$source_status"; then
+    echo "Source workspace remains clean: OK"
+  else
+    echo "ERROR: source workspace was modified" >&2
+    printf '%s\n' "$source_status" | sed -n '1,25p' >&2
+    exit 1
+  fi{% endcapture %}
+{% capture completion %}  if [ "$validation_mode" = true ]; then{% endcapture %}
+
+## 3.22. Возвращаемся к общим проверкам {#workspace-convergence}
+
+{% capture script_157_158 %}  validate_disposable_policy "$disposable_workspace" "$tracked_paths"
+  assert_source_workspace_clean{% endcapture %}
+{% include source-preview.html source=script_157_158 label="Общие проверки обеих веток · строки 157–158" path=script revision=revision start=157 open=true %}
+
+Ветка нового релиза доходит сюда после проверки путей кандидата,
+контейнерной валидации и проверки обновления Manifest. Ветка
+`up-to-date` доходит сюда после проверки маркера результата и нулевого
+числа добавленных путей. В обоих случаях эти результаты дают допуск
+к двум вызовам. Их исход ещё предстоит узнать.
+
+<figure class="figure lesson-figure">
+  <div class="shell-file-grid">
+    <div class="workspace"><strong>Новый релиз</strong><small>143 · Пути кандидата → 144–146 · Контейнер → 147 · Manifest</small></div>
+    <div class="workspace"><strong>Актуальный пакет</strong><small>149 · Маркер результата → 154 · Ноль добавленных путей</small></div>
+  </div>
+  <p class="workspace-merge">↓ После успешного завершения выбранной ветки</p>
+  <ol class="shell-gates" role="list">
+    <li class="flow-node"><strong>157 → 61–68 · Политика временной копии</strong><small>Выполнить проверку</small></li>
+    <li class="flow-node"><strong>157 → 70–75 · Отсутствие <code>.git</code></strong><small>После Python</small></li>
+    <li class="flow-node"><strong>158 → 81–88 · Статус исходного checkout</strong><small>После проверки копии</small></li>
+    <li class="flow-node"><strong>160 · Завершение шага</strong><small>После обеих функций</small></li>
+  </ol>
+</figure>
+
+Режим validation-only проходит те же проверки. Условие, которое определяет
+порядок завершения в этом режиме, стоит дальше, на строке 160.
+
+## 3.23. Передаём параметры валидатору Python {#policy-arguments}
+
+{% capture script_57_68 %}validate_disposable_policy() {
+  local disposable_workspace="$1"
+  local tracked_paths="$2"
+
+  if PYTHONDONTWRITEBYTECODE=1 python3 scripts/overlay_policy.py \
+    --root "$disposable_workspace" \
+    --tracked-paths-file "$tracked_paths"; then
+    echo "Overlay policy for disposable workspace: OK"
+  else
+    echo "ERROR: overlay policy failed for disposable workspace" >&2
+    exit 1
+  fi{% endcapture %}
+{% include source-preview.html source=script_57_68 label="Аргументы функции и вызов Python · строки 57–68" path=script revision=revision start=57 open=true %}
+
+При вызове на строке 157 первый аргумент становится `$1`, второй — `$2`.
+Как и в [передаче кандидата](#independent-crates), порядок аргументов
+определяет их смысл. `local` создаёт переменные с областью видимости функции.
+Bash позволяет функции видеть локальные переменные вызывающей функции,
+но явные параметры задают интерфейс вызова. Функция получает оба пути
+в заданном порядке, даже если вызывающая сторона назовёт свои переменные иначе.
+
+| Из `main` | Внутри функции | Аргумент Python |
+| --- | --- | --- |
+| `"$disposable_workspace"` | `$1` → локальная `disposable_workspace` | `--root "$disposable_workspace"` |
+| `"$tracked_paths"` | `$2` → локальная `tracked_paths` | `--tracked-paths-file "$tracked_paths"` |
+
+Кавычки сохраняют каждое раскрытое значение как один аргумент, даже
+если в пути есть пробелы. Обратная косая черта в конце строки вместе
+с переводом строки исчезает при чтении Bash. Строки 61–63 образуют одну
+команду. `if` выбирает ветку по её статусу завершения.
+
+<div class="figure selector command-anatomy policy-command" data-selector data-label="Аргументы команды Python" markdown="1">
+<h3>Команда и её аргументы</h3>
+<div class="annotated-command" data-selection-controls role="group" aria-label="Аргументы команды Python"><code>  if <span data-select="policy-env">PYTHONDONTWRITEBYTECODE=1</span> <span data-select="policy-python">python3</span> <span data-select="policy-script">scripts/overlay_policy.py</span> \
+    <span data-select="policy-root">--root</span> <span data-select="policy-directory">"$disposable_workspace"</span> \
+    <span data-select="policy-paths-option">--tracked-paths-file</span> <span data-select="policy-paths-value">"$tracked_paths"</span>; then</code></div>
+<div data-panel id="policy-env" markdown="1">
+Присваивание перед командой передаёт значение в окружение процесса Python. При импорте модулей Python не записывает файлы байткода.
+</div>
+<div data-panel id="policy-python" markdown="1">
+Bash запускает интерпретатор `python3`. Условие `if` использует статус этого процесса.
+</div>
+<div data-panel id="policy-script" markdown="1">
+Путь к скрипту относительный. После `cd` на строке 133 Bash уже работает во временной копии, и Python открывает её `scripts/overlay_policy.py`.
+</div>
+<div data-panel id="policy-root" markdown="1">
+Эта именованная опция явно задаёт корень overlay для проверки. Путь к скрипту определяет, какой код запустить, а `--root` — чьи файлы он прочитает.
+</div>
+<div data-panel id="policy-directory" markdown="1">
+`/home/runner/work/_temp/zed-overlay` — пример значения `--root`. Здесь он совпадает с текущим каталогом Bash.
+</div>
+<div data-panel id="policy-paths-option" markdown="1">
+По этой опции валидатор находит список отслеживаемых путей для проверки кеша.
+</div>
+<div data-panel id="policy-paths-value" markdown="1">
+`/home/runner/work/_temp/zed-overlay-tracked-paths` — пример файла со списком. Он лежит рядом с временной копией.
+</div>
+</div>
+
+{% capture script_133_133 %}  cd "$disposable_workspace"{% endcapture %}
+{% include source-preview.html source=script_133_133 label="Переход в рабочий каталог · строка 133" path=script revision=revision start=133 open=true %}
+{% capture policy_155_181 %}def main() -> int:
+    """Run the policy checker for this repository or a supplied root."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+        help="overlay repository root (default: this script's repository)",
+    )
+    parser.add_argument(
+        "--tracked-paths-file",
+        type=Path,
+        help="NUL-separated UTF-8 paths from git ls-files -z",
+    )
+    args = parser.parse_args()
+    try:
+        tracked_paths = (
+            tracked_paths_from_file(args.tracked_paths_file)
+            if args.tracked_paths_file is not None
+            else None
+        )
+        ebuilds = validate_overlay(args.root, tracked_paths=tracked_paths)
+    except OverlayPolicyError as error:
+        print(f"overlay policy: FAILED: {error}")
+        return 1
+    print(f"overlay policy: OK ({len(ebuilds)} Zed ebuild(s))")
+    return 0{% endcapture %}
+{% include source-preview.html source=policy_155_181 label="Интерфейс команды и результат · строки 155–181" path=policy revision=revision start=155 open=true %}
+
+Python передаёт значение `--root` в `validate_overlay`. Если
+указан `--tracked-paths-file`, Python сначала читает его, затем
+передаёт полученные пути в ту же функцию. При вызове без `--root`
+интерфейс по умолчанию берёт корень относительно расположения самого
+скрипта. В CI корень и файл путей заданы явно.
+
+## 3.24. Как проверить overlay без Git? {#gitless-policy}
+
+{% capture script_126_126 %}  git -C "$GITHUB_WORKSPACE" ls-files -z > "$tracked_paths"{% endcapture %}
+{% include source-preview.html source=script_126_126 label="Список путей из индекса · строка 126" path=script revision=revision start=126 open=true %}
+{% capture script_130_130 %}  git -C "$GITHUB_WORKSPACE" archive HEAD | tar -x -C "$disposable_workspace"{% endcapture %}
+{% include source-preview.html source=script_130_130 label="Экспорт дерева HEAD · строка 130" path=script revision=revision start=130 open=true %}
+
+`git archive HEAD` экспортирует файлы коммита без служебных метаданных
+`.git`. Чтобы проверить политику, достаточно файлов из этого дерева,
+результатов подготовки и списка путей, который Git выгрузил из исходного
+индекса на строке 126. Инициализировать новый checkout во временном каталоге
+не требуется.
+
+- **Обычный checkout.** Без опции `--tracked-paths-file` функция получает
+  `tracked_paths=None`. Она проверяет файлы под корнем и затем вызывает
+  `git_tracked_paths(repository_root)` для правила о кеше.
+- **Временная копия.** С опцией `--tracked-paths-file` Python до проверки
+  дерева читает файл как UTF-8, делит содержимое по байту NUL и отбрасывает
+  пустые записи. Полученный набор заменяет запрос к Git для правила о кеше.
+  Проверки файлов под `--root` выполняются по-прежнему.
+
+Сохранённый файл содержит только имена путей. Из них нельзя восстановить
+индекс, историю или содержимое файлов. Список снят с исходного индекса, а
+архив взят из `HEAD`. Проверка не сверяет список целиком с фактическим деревом
+копии. Git умеет искать репозиторий вверх по каталогам. Сценарий без файла
+путей ниже использует отдельный каталог вне любого репозитория.
+
+{% include workspace-labs.html lab="policy-input" %}
+
+## 3.25. Что именно проверяет overlay policy? {#policy-rules}
+
+В [главе 01]({{ '/internals/01-release-watcher/yaml/' | relative_url }}#overlay-policy-step)
+есть описание политики и [лаборатория]({{ '/internals/01-release-watcher/yaml/' | relative_url }}#policy-lab-title).
+Здесь важно, к какому входу обращается каждое правило.
+
+- **Файловая система.** Валидатор читает имя `zed-overlay` из
+  `profiles/repo_name` и проверяет `masters = gentoo` и
+  `thin-manifests = true` в `metadata/layout.conf`. Затем он требует
+  каталог `app-editors/zed`, файлы `metadata.xml` и `Manifest` и
+  хотя бы один ebuild по шаблону `zed-*.ebuild`.
+- **Каждый найденный ebuild.** Валидатор ищет ссылку
+  `"${FILESDIR}/${P}-wayland-only.patch"` в ожидаемой записи `PATCHES`,
+  требует соответствующий версии файл в `files/` и проверяет его текст.
+  Проверка ищет маркеры unified Git diff, удаление `x11` и
+  `screen-capture`, сохранение `wayland` в списке features и отсутствие
+  `x11`, `screen-capture` и `scap/wayland` в добавленных строках.
+- **Список путей.** Отслеживаемый `metadata/md5-cache` или любой путь
+  с префиксом `metadata/md5-cache/` нарушает политику.
+
+{% capture policy_109_134 %}def validate_overlay(
+    repository_root: Path, *, tracked_paths: Iterable[str] | None = None
+) -> tuple[Path, ...]:
+    """Validate stable repository structure and Wayland-only policy."""
+    repository_root = repository_root.resolve()
+    repo_name_path = repository_root / "profiles/repo_name"
+    require_file(repo_name_path)
+    if repo_name_path.read_text(encoding="utf-8").strip() != REPOSITORY_NAME:
+        raise OverlayPolicyError(f"profiles/repo_name must be '{REPOSITORY_NAME}'.")
+
+    layout_path = repository_root / "metadata/layout.conf"
+    require_file(layout_path)
+    settings = layout_settings(layout_path)
+    for key, expected_value in REQUIRED_LAYOUT.items():
+        if settings.get(key) != expected_value:
+            raise OverlayPolicyError(
+                f"metadata/layout.conf must set {key} = {expected_value}."
+            )
+
+    package_dir = repository_root / PACKAGE_DIRECTORY
+    if not package_dir.is_dir():
+        raise OverlayPolicyError(f"Package directory is missing: {PACKAGE_DIRECTORY}.")
+    for required_name in ("metadata.xml", "Manifest"):
+        require_file(package_dir / required_name)
+
+    ebuilds = tuple(sorted(package_dir.glob("zed-*.ebuild"))){% endcapture %}
+{% include source-preview.html source=policy_109_134 label="Структура overlay и поиск ebuild · строки 109–134" path=policy revision=revision start=109 open=true %}
+
+`glob("zed-*.ebuild")` ищет файлы в рабочем каталоге пакета. Поэтому
+новый `zed-1.29.0.ebuild` проходит ту же проверку, что и прежний ebuild,
+хотя сохранённый список путей его не содержит. Файл кеша на диске
+проходит это правило, если его путь отсутствует в наборе отслеживаемых путей.
+
+{% include workspace-labs.html lab="policy-rules" %}
+
+Проверка patch работает с конкретными фрагментами текста. Применимость
+patch проверяется отдельно в [контейнере](#manifest-lifecycle), а сборка
+и нативный запуск Zed требуют ручной проверки на Gentoo. Результат
+overlay policy относится только к перечисленным правилам.
+
+## 3.26. Обрабатываем результат проверки {#policy-result}
+
+При статусе `0` Bash печатает своё сообщение об успехе на строке 64.
+Обработанный `OverlayPolicyError` сначала печатает сам Python обычным
+`print()` в stdout и возвращает `1`. Затем Bash печатает сообщение
+об ошибке в stderr и выполняет `exit 1`. У необработанных исключений
+и ошибок интерпретатора могут быть другие сообщения и потоки вывода.
+
+Команда Python стоит в условии `if`, для которого `errexit` не
+останавливает выполнение при ненулевом статусе. Управление попадает
+в `else`, где скрипт явно прерывается.
+
+Лишь после успеха Python Bash проверяет `test ! -e "$disposable_workspace/.git"`.
+Это проверка существования конкретного пути, без обхода вложенных
+каталогов или поиска родительского репозитория. Сценарий с появившимся
+`.git` показывает, как сработает это условие, если граница нарушится.
+Временный каталог отделяет рабочие файлы кандидата от checkout и не
+ограничивает доступ процессов к остальной файловой системе.
+
+{% include workspace-labs.html lab="policy-result" %}
+
+## 3.27. Проверяем исходный checkout {#source-workspace}
+
+{% capture script_78_89 %}assert_source_workspace_clean() {
+  local source_status
+
+  source_status="$(git -C "$GITHUB_WORKSPACE" status --short)"
+  if test -z "$source_status"; then
+    echo "Source workspace remains clean: OK"
+  else
+    echo "ERROR: source workspace was modified" >&2
+    printf '%s\n' "$source_status" | sed -n '1,25p' >&2
+    exit 1
+  fi
+}{% endcapture %}
+{% include source-preview.html source=script_78_89 label="Полная проверка исходного checkout · строки 78–89" path=script revision=revision start=78 open=true %}
+
+`local source_status` объявляет локальную переменную. На строке 81
+`$(…)` выполняет Git и подставляет его stdout. Bash удаляет завершающие
+переводы строк, сохраняя внутренние. Поэтому переменная может содержать
+несколько строк статуса. `test -z` возвращает `0` для пустой строки
+и `1` для непустой. Кавычки сохраняют значение целиком.
+
+<figure class="figure lesson-figure">
+  <div class="candidate-workspaces workspace-target">
+    <div class="workspace"><strong>Текущий каталог Bash</strong><code>$RUNNER_TEMP/zed-overlay</code><small>Здесь лежат <code>zed-1.29.0.ebuild</code> и его patch.</small></div>
+    <div class="workspace-transfer"><span aria-hidden="true"></span><code>git -C</code></div>
+    <div class="workspace workspace-candidate"><strong>Каталог операции Git</strong><code>$GITHUB_WORKSPACE</code><small>Здесь Git сравнивает HEAD, индекс и рабочее дерево исходного checkout.</small></div>
+  </div>
+</figure>
+
+Вариант `git -C "$GITHUB_WORKSPACE"` задаёт каталог операции Git,
+оставляя текущий каталог Bash во временной копии. Поэтому изменения
+кандидата в ней не входят в статус исходного checkout.
+
+Строка 81 — самостоятельное присваивание с подстановкой команды.
+Его статус равен статусу Git. Если Git завершится с ошибкой,
+`set -e` остановит этот путь исполнения до `test -z`, даже если
+stdout Git пуст. Сравните это с условием проверки
+[контрольной суммы](#manifest-lifecycle).
+
+{% capture script_49_49 %}  if test "$manifest_checksum" != "$(sha256sum app-editors/zed/Manifest)"; then{% endcapture %}
+{% include source-preview.html source=script_49_49 label="Подстановка внутри аргумента test · строка 49" path=script revision=revision start=49 open=true %}
+
+Здесь вывод `sha256sum` становится операндом `test`. Условие `if`
+получает статус сравнения. Например, пустой вывод при ошибке
+`sha256sum` и непустая сохранённая строка дадут истину для `!=`.
+
+## 3.28. Читаем вывод git status {#short-status}
+
+Для обычного файла без конфликта в `git status --short` первая колонка
+`X` показывает состояние индекса относительно `HEAD`, вторая
+`Y` — состояние рабочего дерева относительно индекса. Пробел
+занимает колонку, когда на этой стороне изменений нет. Путь
+начинается после обеих колонок и пробела-разделителя. Пара `??`
+целиком обозначает неотслеживаемый путь.
+
+```text
+ M app-editors/zed/Manifest
+M  app-editors/zed/Manifest
+MM app-editors/zed/Manifest
+A  app-editors/zed/zed-1.29.0.ebuild
+ D app-editors/zed/zed-1.28.1.ebuild
+?? unexpected.txt
+```
+
+{% include workspace-labs.html lab="short-status" %}
+
+Игнорируемые неотслеживаемые файлы при обычных настройках в этот
+вывод не попадают. Здесь не задана опция `--untracked-files`, поэтому
+на показ неотслеживаемых путей могут влиять настройки пользователя
+или репозитория, например `status.showUntrackedFiles`.
+
+Пустой вывод означает, что к моменту проверки Git не сообщил изменений
+относительно текущего состояния checkout. Из него нельзя узнать, были
+ли правки с последующим откатом, сдвигался ли `HEAD`, менялись ли
+настройки, метаданные Git, игнорируемые файлы или объекты вне checkout.
+
+## 3.29. Ограничиваем диагностический вывод через sed {#status-diagnostics}
+
+{% capture status_diagnostic %}    printf '%s\n' "$source_status" | sed -n '1,25p' >&2{% endcapture %}
+`printf '%s\n' "$source_status"` печатает всю строку из переменной
+и добавляет один перевод строки в конце. Кавычки сохраняют её
+одним аргументом со всеми внутренними переводами строки. Оператор
+`|` передаёт stdout `printf` в stdin `sed`. Ключ `-n` выключает
+автоматическую печать, `1,25` выбирает строки с первой по
+двадцать пятую включительно, а `p` печатает каждую выбранную строку.
+Оператор `>&2` направляет stdout `sed` в stderr скрипта.
+
+К моменту запуска конвейера Git уже завершил работу, а `test -z`
+проверил весь захваченный вывод. `sed` ограничивает длину диагностики
+при большом числе путей. Он ничего не записывает в дерево и обычно
+читает вход до конца, поскольку в программе нет команды выхода.
+При пустом статусе Bash идёт в ветку успеха, где конвейера нет.
+
+{% include workspace-labs.html lab="status-diagnostics" %}
+
+## 3.30. Завершаем проверку рабочих пространств {#workspace-gates}
+
+Обе функции должны завершиться успешно. Первая читает файлы
+подготовленной копии и сохранённый список путей, затем проверяет
+`.git`. Вторая запрашивает текущее состояние исходного checkout
+и проверяет, пуст ли полученный статус. Каждая проверка подтверждает
+своё свойство, поэтому успех одной функции ничего не говорит
+о результате другой.
+
+{% include workspace-labs.html lab="workspace-gates" %}
+
+Когда обе функции вернулись успешно, Bash доходит до выбора
+способа завершения на строке 160.
+
+{% capture script_160_160 %}  if [ "$validation_mode" = true ]; then{% endcapture %}
+{% include source-preview.html source=script_160_160 label="Условие завершения · строка 160" path=script revision=revision start=160 open=true %}

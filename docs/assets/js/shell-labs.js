@@ -1,5 +1,6 @@
 import {traceReleaseGates} from './handbook.js';
 import {candidateLabs} from './candidate-labs.js';
+import {workspaceLabs} from './workspace-labs.js';
 
 const checkout = '/home/runner/work/zed-overlay/zed-overlay';
 const runnerTemp = '/home/runner/work/_temp';
@@ -212,6 +213,7 @@ function boundary(lab, fields) {
 const labs = {
   environment, function: functionTrace, mode, paths, filesystem, snapshot, streams, pipeline, boundary,
   ...candidateLabs(highlight),
+  ...workspaceLabs(highlight, runnerTemp, checkout),
 };
 
 for (const lab of document.querySelectorAll('[data-shell-lab]')) {

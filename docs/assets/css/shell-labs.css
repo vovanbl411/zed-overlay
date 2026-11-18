@@ -218,3 +218,40 @@
 @media (min-width: 72.001rem) {
   .page-nav { max-block-size: 100dvh; overflow-y: auto; padding-block-end: 1rem; scrollbar-width: thin; }
 }
+
+.workspace-merge {
+  border-inline-start: 2px solid var(--accent);
+  margin-block: .65rem;
+  padding-inline-start: .65rem;
+  color: var(--accent);
+}
+.workspace-inputs > :nth-child(2) { border-style: dashed; }
+.workspace-inputs > .workspace > strong code { white-space: nowrap; }
+.workspace-lab .workspace > code, .workspace-target code {
+  overflow-wrap: anywhere;
+}
+.workspace-lab .workspace pre { line-height: 1.45; }
+.workspace-tree-child:not([hidden]) {
+  display: block;
+  margin-inline-start: 3ch;
+  padding-inline-start: 3ch;
+  text-indent: -3ch;
+}
+.workspace-lab .workspace-report {
+  max-block-size: 12rem;
+  overflow: auto;
+  scrollbar-color: var(--muted) var(--raised);
+  white-space: pre;
+}
+.workspace-status-flow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-block: .75rem;
+}
+.policy-command .annotated-command {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 50rem) {
+  .workspace-status-flow { grid-template-columns: minmax(0, 1fr); }
+  .workspace-status-flow .flow-node + .flow-node::before { top: auto; left: 1rem; }
+}
