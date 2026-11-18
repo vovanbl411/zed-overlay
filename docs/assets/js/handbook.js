@@ -632,7 +632,7 @@ export function traceReleaseGates(figure, count, failure) {
   renderReleaseGates(figure, states);
 }
 
-function renderReleaseGates(figure, states) {
+export function renderReleaseGates(figure, states) {
   figure.querySelectorAll('.flow-node[data-gate-state]').forEach((node, index) => {
     const status = states[index];
     node.dataset.gateState = status;

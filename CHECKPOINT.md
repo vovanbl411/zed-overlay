@@ -99,10 +99,10 @@ post-sync hook to refresh the external cache automatically; it does not put
 Release automation through Stage 2 is complete. Manual Gentoo acceptance for
 Zed 1.28.1 remains pending.
 
-The handbook's introduction and release watcher architecture chapter are
-complete. The interactive YAML walkthrough covers lines 1–240 of the release
-watcher workflow, including all three jobs. The walkthrough passed source
-accuracy review, static review, and owner visual acceptance.
+Chapter 01 and the full YAML walkthrough (workflow lines 1–240, all three
+jobs) are integrated into `main`. The walkthrough passed source accuracy
+review, static review, and owner visual acceptance.
 
-The documentation on `feat/docs-site` is awaiting integration into `main`.
-The next educational phase is the Bash implementation walkthrough.
+Phase 3.1 of Chapter 02 is implemented and passed static review. Phase 3.2
+covers candidate discovery, path validation, and the post-container Manifest
+checks. It is implemented and awaiting owner review.
