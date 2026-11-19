@@ -1,0 +1,344 @@
+{% assign kind = include.lab %}
+{% assign demo_digest = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' %}
+{% assign temp = '/home/runner/work/_temp' %}
+{% assign demo_json = 'zed-1.29.0-overlay-crates.json' %}
+{% assign demo_tar = 'zed-1.29.0-overlay-crates.tar.xz' %}
+<div class="figure lesson-figure shell-lab completion-lab" data-shell-lab="{{ kind }}" markdown="1">
+
+{% case kind %}
+{% when 'finish' %}
+<h3>Как завершится main</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Режим <select name="mode"><option value="production">Production</option><option value="validation">Validation-only</option></select></label>
+  <label>Результат подготовки <select name="result"><option value="new-release">new-release</option><option value="up-to-date">up-to-date</option></select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Заключительные ветки · строки 160–170" path=include.script revision=include.revision start=include.start open=true %}
+
+<p class="model-result" role="status">Production с новым релизом. Bash читает и проверяет archive_mode, записывает выход и вызывает create_release_handoff.</p>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Финальные сообщения</strong><pre><code data-value="messages">Distribution bundle: OK
+Sanitized release handoff and distribution bundle: OK
+Metadata SHA256: {{ demo_digest }}</code></pre></div>
+  <div class="workspace"><strong>Локальные результаты</strong><pre><code data-value="files">zed-overlay/ · кандидат и Manifest
+zed-overlay-prepare.log
+zed-independent/logs/ · включая result.txt
+crates-distribution/ · архив и JSON
+release-handoff/
+handoff_ready=true</code></pre></div>
+</div>
+<p class="figure-caption">Условная версия 1.29.0, вымышленная контрольная сумма. В примере все достигнутые команды успешны.</p>
+
+{% when 'duration' %}
+<h3>Счётчик в начале и в конце main</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Начало <input type="range" name="start" min="0" max="600" value="20"></label>
+  <label>Конец <input type="range" name="end" min="20" max="1200" value="95"></label>
+  <label>Раскрытие <select name="expansion">
+    <option value="arithmetic">$((expression)) · вычисление</option>
+    <option value="parameter">$variable · значение</option>
+    <option value="command">$(command) · stdout</option>
+  </select></label>
+</div>
+<div class="elapsed-axis">
+  <div><code>total_started</code><strong data-value="start">20</strong></div>
+  <span aria-hidden="true"></span>
+  <div><code>SECONDS</code><strong data-value="end">95</strong></div>
+</div>
+<p class="model-result" role="status">95 − 20 = 75 с. Арифметическое раскрытие подставляет число 75.</p>
+<div class="lab-terminal"><code data-value="message">Total candidate preparation and validation: 75s</code></div>
+
+{% include source-preview.html source=include.initial label="Снимок счётчика · строка 113" path=include.script revision=include.revision start=113 open=true %}
+{% include source-preview.html source=include.source label="Разность и вывод · строка 161" path=include.script revision=include.revision start=161 open=true %}
+{% include source-preview.html source=include.comparison label="Захват вывода команды · строка 165" path=include.script revision=include.revision start=165 %}
+
+{% when 'archive-mode' %}
+<h3>Из result.txt в переменную родительской оболочки</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Содержимое result.txt <select name="scenario">
+    <option value="generation">generation + перевод строки</option>
+    <option value="reuse">reuse + перевод строки</option>
+    <option value="empty">Пустой файл</option>
+    <option value="unexpected">Неизвестное значение</option>
+    <option value="multiline">Две непустые строки</option>
+    <option value="missing">Файл отсутствует</option>
+  </select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Чтение и выбор · строки 164–168" path=include.script revision=include.revision start=include.start open=true %}
+
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Файл result.txt</strong><pre><code data-value="input">"generation\n"</code></pre></div>
+  <div class="workspace"><strong>Значение archive_mode</strong><pre><code data-value="captured">"generation"</code></pre></div>
+  <div class="workspace"><strong>Присваивание и case</strong><pre><code data-value="test">Статус присваивания: 0
+Шаблон: generation|reuse</code></pre></div>
+  <div class="workspace"><strong>Запись и вызов</strong><pre><code data-value="effects">archive_mode=generation
+create_release_handoff вызвана</code></pre></div>
+</div>
+<p class="model-result" role="status">Перевод строки снят. Ветка generation|reuse разрешает запись и вызов.</p>
+<div class="lab-terminal" data-diagnostic hidden><code data-value="diagnostic"></code></div>
+<p class="figure-caption">Кавычки и \n показывают границы значения и перевод строки. Они не входят в данные.</p>
+
+{% when 'construct' %}
+<h3>Какие файлы переходят в handoff</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Состояние файлов <select name="scenario">
+    <option value="ok">Успешное создание</option>
+    <option value="exists">Каталог назначения уже есть</option>
+    <option value="missing">Нет ebuild кандидата</option>
+    <option value="symlink">Ebuild кандидата — симлинк</option>
+  </select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Вызов Python · строки 91–98" path=include.script revision=include.revision start=include.start open=true %}
+
+<div class="shell-file-grid completion-trees">
+  <div class="workspace">
+    <strong>Одноразовый workspace</strong><small>{{ temp }}/zed-overlay</small>
+    <pre><code data-value="workspace">app-editors/zed/
+├── Manifest
+├── zed-1.29.0.ebuild
+└── files/
+    └── zed-1.29.0-wayland-only.patch</code></pre>
+    <small>scripts/ и остальные файлы остаются здесь</small>
+  </div>
+  <div class="workspace">
+    <strong>Место назначения</strong><small>{{ temp }}/release-handoff</small>
+    <pre><code data-value="handoff">release-handoff/
+├── release.json [создан]
+└── app-editors/
+    └── zed/
+        ├── Manifest
+        ├── zed-1.29.0.ebuild
+        └── files/
+            └── zed-1.29.0-wayland-only.patch</code></pre>
+    <small data-value="transfer">Три файла пакета скопированы из workspace</small>
+  </div>
+  <div class="workspace">
+    <strong>Уже подготовлено дочерним скриптом</strong>
+    <pre><code>crates-distribution/
+├── {{ demo_tar }}
+└── {{ demo_json }}</code></pre>
+  </div>
+</div>
+<p class="model-result" role="status">Метаданные и три исходных файла проверены. Python создал и проверил handoff, затем вернул 0 без сообщения в stdout.</p>
+<div class="lab-terminal" data-diagnostic hidden><code data-value="diagnostic"></code></div>
+<p class="figure-caption">Пути и версия условные. При занятом пути функция возвращается до первой записи.</p>
+
+{% when 'checksum' %}
+<h3>От метаданных до metadata_hash</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Шаг преобразования <select name="step">
+    <option value="0">JSON на входе</option><option value="1">Раскрытие имени</option>
+    <option value="2">Строка sha256sum</option><option value="3">Буквальный пробел</option>
+    <option value="4">Первое поле</option><option value="5">Значение переменной</option>
+  </select></label>
+  <label>Конвейер <select name="scenario">
+    <option value="ok">Обе команды успешны</option><option value="sha">Ошибка sha256sum</option>
+    <option value="cut">Ошибка cut</option>
+  </select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Присваивание с конвейером · строка 99" path=include.script revision=include.revision start=include.start open=true %}
+
+<ol class="lesson-flow completion-pipe" role="list" aria-label="Преобразования">
+  <li class="flow-node shell-focus" data-point="0 1"><strong>JSON</strong><small>Байты файла</small></li>
+  <li class="flow-node" data-point="2"><strong><code>sha256sum</code></strong><small>Digest и имя</small></li>
+  <li class="flow-node" data-point="3 4"><strong><code>cut</code></strong><small>Первое поле</small></li>
+  <li class="flow-node" data-point="5"><strong>Присваивание</strong><small>Значение без \n на конце</small></li>
+</ol>
+<div class="workspace"><strong data-value="detail">Байты метаданных на входе</strong><pre><code data-value="intermediate">{{ temp }}/crates-distribution/{{ demo_json }}</code></pre></div>
+<p class="model-result" role="status">sha256sum: 0 · cut: 0 · присваивание: 0. Строка 100 достижима.</p>
+<p class="figure-caption">Используются условный путь и вымышленная контрольная сумма.</p>
+<noscript><div class="workspace"><strong>Пример строки sha256sum</strong><pre><code>{{ demo_digest }}  {{ temp }}/crates-distribution/{{ demo_json }}</code></pre></div></noscript>
+
+{% when 'digest' %}
+<h3>Пройдёт ли значение проверку формата</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Значение metadata_hash <select name="scenario">
+    <option value="ok">64 допустимых символа</option><option value="short">63 символа</option>
+    <option value="long">65 символов</option><option value="upper">Прописные A–F</option>
+    <option value="nonhex">Символ g</option><option value="space">Пробел в начале</option>
+    <option value="empty">Пустая строка</option>
+  </select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Регулярное выражение Bash · строка 100" path=include.script revision=include.revision start=include.start open=true %}
+
+<div class="workspace"><strong>Строка и число символов</strong><pre><code data-value="input">"{{ demo_digest }}"</code></pre><small data-value="length">64 символа</small></div>
+<p class="model-result" role="status">MATCH · статус 0. Вся строка совпала с шаблоном. Строка 101 достижима.</p>
+
+{% when 'bundle' %}
+<h3>Что передаём в bundle</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Вход валидатора <select name="argument">
+    <option value="bundle">--bundle</option><option value="handoff">--handoff</option>
+    <option value="base-commit">--base-commit</option><option value="base-manifest">--base-manifest</option>
+    <option value="metadata-sha256">--metadata-sha256</option>
+  </select></label>
+</div>
+
+{% include source-preview.html source=include.source label="Пять аргументов валидатора · строки 101–105" path=include.script revision=include.revision start=include.start open=true %}
+
+<div class="completion-fan" aria-label="Пять входов одного валидатора">
+  <ul role="list">
+    <li class="flow-node shell-focus" data-input="bundle"><code>--bundle</code><small>Архив и JSON после independent-crates.sh</small></li>
+    <li class="flow-node" data-input="handoff"><code>--handoff</code><small>Четыре файла после --create-handoff</small></li>
+    <li class="flow-node" data-input="base-commit"><code>--base-commit</code><small>Ревизия overlay из события</small></li>
+    <li class="flow-node" data-input="base-manifest"><code>--base-manifest</code><small>Manifest в исходном checkout</small></li>
+    <li class="flow-node" data-input="metadata-sha256"><code>--metadata-sha256</code><small>Контрольная сумма JSON из строки 99</small></li>
+  </ul>
+  <div class="flow-node completion-validator"><strong>validate_bundle()</strong><small>Сверка входов</small></div>
+</div>
+<div class="workspace"><strong data-value="origin">Результат independent-crates.sh</strong><pre><code data-value="example">{{ temp }}/crates-distribution</code></pre></div>
+<p class="model-result" role="status">Проверяет состав каталога и согласованность архива с метаданными.</p>
+
+{% when 'outputs' %}
+<h3>Что уже записано к выбранному моменту</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Операция <select name="step">
+    <option value="0">1 · Записать handoff_ready=false</option><option value="1">2 · Записать archive_mode</option>
+    <option value="2">3 · Создать handoff</option><option value="3">4 · Получить и проверить digest</option>
+    <option value="4">5 · Проверить bundle</option><option value="5">6 · Дописать SHA256 в сводку</option>
+    <option value="6">7 · Записать metadata_sha256</option><option value="7" selected>8 · Записать handoff_ready=true</option>
+  </select></label>
+  <div class="shell-step-buttons">
+    <button type="button" data-step="-1">Назад</button>
+    <button type="button" data-step="1">Дальше</button>
+  </div>
+</div>
+
+{% include source-preview.html source=include.initial label="Начальное значение · строка 125" path=include.script revision=include.revision start=125 open=true %}
+{% include source-preview.html source=include.archive label="Режим подготовки · строка 167" path=include.script revision=include.revision start=167 open=true %}
+{% include source-preview.html source=include.execution label="Подготовка и проверки · строки 95–105" path=include.script revision=include.revision start=95 %}
+{% include source-preview.html source=include.source label="Сводка и выходы · строки 106–109" path=include.script revision=include.revision start=include.start open=true %}
+
+<div class="shell-file-grid">
+  <div class="workspace"><strong>GITHUB_OUTPUT</strong><pre><code data-value="output">handoff_ready=false
+archive_mode=generation
+metadata_sha256={{ demo_digest }}
+handoff_ready=true</code></pre></div>
+  <div class="workspace"><strong>GITHUB_STEP_SUMMARY</strong><pre><code data-value="summary">Result: new-release
+[отчёт independent-crates.sh]
+Metadata SHA256: {{ demo_digest }}</code></pre></div>
+</div>
+<div class="workspace completion-local"><strong>Локальные результаты</strong><pre><code data-value="files">zed-overlay/ и снимки путей
+zed-overlay-prepare.log
+zed-independent/logs/
+crates-distribution/
+release-handoff/</code></pre></div>
+<p class="model-result" role="status">Последняя запись handoff_ready: true. Дальше runner завершает шаг, обрабатывает выходы и проверяет условия загрузки.</p>
+<p class="figure-caption">Успешный production с новым релизом. Показан фрагмент сводки, digest вымышлен. Обычные artifacts пока находятся на диске runner.</p>
+
+{% when 'readiness' %}
+<h3>На какой операции остановится production</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Первая ошибка <select name="scenario">
+    <option value="ok">Нет ошибки</option><option value="read">Чтение result.txt</option>
+    <option value="mode">Недопустимый archive_mode</option><option value="handoff">Создание handoff</option>
+    <option value="checksum">Вычисление SHA256</option><option value="digest">Формат digest</option>
+    <option value="bundle">Валидация комплекта</option><option value="summary">Запись в сводку</option>
+    <option value="output">Запись metadata_sha256</option>
+  </select></label>
+</div>
+<ol class="shell-gates completion-gates" role="list">
+  <li class="flow-node" data-gate-state="PASS"><a href="#archive-mode-transfer">165 · Прочитать режим</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#archive-mode-transfer">166 · Проверить режим</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#archive-mode-transfer">167 · Записать archive_mode</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#construct-handoff">95–98 · Создать handoff</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#metadata-checksum">99 · Вычислить SHA256</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#digest-format">100 · Проверить формат digest</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#validate-bundle">101–105 · Проверить комплект и сообщить об успехе</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#actions-output-lifecycle">106 · Дописать SHA256 в сводку</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#actions-output-lifecycle">107 · Записать metadata_sha256</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+  <li class="flow-node" data-gate-state="PASS"><a href="#actions-output-lifecycle">108 · Записать handoff_ready=true</a><span class="lesson-status" data-status="PASS">PASS</span></li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>GITHUB_OUTPUT</strong><pre><code data-value="output">handoff_ready=false
+archive_mode=generation
+metadata_sha256={{ demo_digest }}
+handoff_ready=true</code></pre></div>
+  <div class="workspace"><strong>На диске runner</strong><pre><code data-value="files">crates-distribution/ · архив и JSON
+zed-independent/logs/
+release-handoff/ · четыре файла</code></pre></div>
+</div>
+<p class="model-result" role="status">Bash завершился успешно. Записано handoff_ready=true; обычные upload-шаги допускаются при успешных предыдущих шагах.</p>
+<p class="figure-caption">Здесь сбой записи моделируется как ошибка открытия файла до записи байтов. При реальном сбое во время записи часть строки может сохраниться. Контрольная сумма вымышлена.</p>
+
+{% when 'execution-map' %}
+<h3>Трасса от запуска до выхода</h3>
+<div class="lab-controls" data-lab-controls hidden>
+  <label>Сценарий <select name="scenario">
+    <option value="generation">Production · generation</option><option value="reuse">Production · reuse</option>
+    <option value="current">Production · up-to-date</option>
+    <option value="validation-new">Validation-only · new-release</option><option value="validation-current">Validation-only · up-to-date</option>
+    <option value="prepare">Сбой первичной подготовки</option><option value="paths">Недопустимые пути кандидата</option>
+    <option value="container">Сбой контейнерной проверки</option><option value="policy">Сбой disposable policy</option>
+    <option value="dirty">Исходный checkout изменён</option><option value="handoff">Сбой создания handoff</option>
+    <option value="bundle">Сбой проверки distribution</option>
+  </select></label>
+</div>
+<ol class="completion-map" role="list">
+  <li>
+    <strong><a href="#startup">Запуск</a></strong>
+    <p>Интерпретатор, опции, окружение, объявления функций и <a href="#main">вызов <code>main</code></a>.</p>
+    <span class="lesson-status" data-map-state="boot" data-status="PASS">PASS</span>
+  </li>
+  <li>
+    <strong><a href="#workspace">Одноразовый workspace</a></strong>
+    <p>Режим, пути, <code>handoff_ready=false</code>, список из индекса, архив <code>HEAD</code>, снимки Manifest и путей.</p>
+    <span class="lesson-status" data-map-state="workspace" data-status="PASS">PASS</span>
+  </li>
+  <li>
+    <strong><a href="#boundary">Первичная подготовка</a></strong>
+    <p>Python <code>--prepare</code>, проверка <code>.git</code> и Manifest, чтение маркера из журнала.</p>
+    <span class="lesson-status" data-map-state="prepare" data-status="PASS">PASS</span>
+  </li>
+  <li class="completion-routes">
+    <div class="flow-node">
+      <strong><a href="#candidate-paths">new-release</a></strong>
+      <ul role="list">
+        <li><a href="#file-comparison">Массив новых путей, ebuild, patch и идентификаторы</a><span class="lesson-status" data-map-state="paths" data-status="PASS">PASS</span></li>
+        <li><a href="#independent-crates">Дочерний скрипт и проверка обновления Manifest</a><span class="lesson-status" data-map-state="container" data-status="PASS">PASS</span></li>
+      </ul>
+    </div>
+    <div class="flow-node">
+      <strong><a href="#up-to-date">up-to-date</a></strong>
+      <p>Маркер и отсутствие добавленных путей.</p>
+      <span class="lesson-status" data-map-state="current" data-status="SKIP">SKIP</span>
+    </div>
+  </li>
+  <li>
+    <strong><a href="#workspace-gates">Общие проверки</a></strong>
+    <ul role="list">
+      <li><a href="#gitless-policy">Overlay policy и граница без .git</a><span class="lesson-status" data-map-state="policy" data-status="PASS">PASS</span></li>
+      <li><a href="#source-workspace">Чистота исходного checkout</a><span class="lesson-status" data-map-state="dirty" data-status="PASS">PASS</span></li>
+    </ul>
+  </li>
+  <li>
+    <strong><a href="#completion-mode">Завершение</a></strong>
+    <ul role="list">
+      <li><a href="#completion-duration">Validation-only · отчёт о времени</a><span class="lesson-status" data-map-state="timing" data-status="SKIP">SKIP</span></li>
+      <li><a href="#completion-mode">Production · up-to-date без handoff</a><span class="lesson-status" data-map-state="noop" data-status="SKIP">SKIP</span></li>
+      <li><a href="#construct-handoff">Production · режим и создание handoff</a><span class="lesson-status" data-map-state="handoff" data-status="PASS">PASS</span></li>
+      <li><a href="#validate-bundle">Digest и проверка комплекта</a><span class="lesson-status" data-map-state="bundle" data-status="PASS">PASS</span></li>
+      <li><a href="#actions-output-lifecycle">Сводка и выходы Actions</a><span class="lesson-status" data-map-state="complete" data-status="PASS">PASS</span></li>
+    </ul>
+  </li>
+</ol>
+<div class="shell-file-grid">
+  <div class="workspace"><strong>Локальные результаты</strong><pre><code data-value="files">zed-overlay/ и снимки путей
+zed-overlay-prepare.log
+zed-independent/logs/
+crates-distribution/
+release-handoff/</code></pre></div>
+  <div class="workspace"><strong>GITHUB_OUTPUT</strong><pre><code data-value="output">handoff_ready=false
+archive_mode=generation
+metadata_sha256={{ demo_digest }}
+handoff_ready=true</code></pre></div>
+</div>
+<p class="model-result" role="status">Скрипт завершился успешно. Режим generation, итоговая готовность true.</p>
+<p class="figure-caption">PASS — выполнено успешно, FAIL — первая остановка, SKIP — ветка не выбрана или выполнение до неё не дошло. Контрольная сумма вымышлена.</p>
+{% endcase %}
+
+</div>
