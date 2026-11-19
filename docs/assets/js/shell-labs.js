@@ -2,6 +2,7 @@ import {traceReleaseGates} from './handbook.js';
 import {candidateLabs} from './candidate-labs.js';
 import {workspaceLabs} from './workspace-labs.js';
 import {completionLabs} from './completion-labs.js';
+import {acquisitionLabs} from './acquisition-labs.js';
 
 const checkout = '/home/runner/work/zed-overlay/zed-overlay';
 const runnerTemp = '/home/runner/work/_temp';
@@ -216,6 +217,7 @@ const labs = {
   ...candidateLabs(highlight),
   ...workspaceLabs(highlight, runnerTemp, checkout),
   ...completionLabs(highlight),
+  ...acquisitionLabs(highlight),
 };
 
 for (const lab of document.querySelectorAll('[data-shell-lab]')) {

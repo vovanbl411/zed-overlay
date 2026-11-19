@@ -2056,6 +2056,5 @@ GitHub Release и Draft PR по своим условиям.
 {% include completion-labs.html lab="execution-map" script=script revision=revision %}
 
 Родительская оболочка передаёт пути кандидата в `independent-crates.sh`
-и затем читает записанный им режим. В следующем разборе проследим,
-как дочерний скрипт получает архив, проверяет кандидата и записывает
-`result.txt`.
+и затем читает записанный им режим. Следующий разбор начинается с
+[получения и проверки исходников Zed]({{ '/internals/02-shell-scripts/independent-crates/' | relative_url }}).

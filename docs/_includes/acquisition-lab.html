@@ -1,0 +1,292 @@
+{%- case include.lab -%}
+  {%- when 'transfer' -%}{%- assign title = 'Четыре аргумента в одном вызове' -%}
+  {%- when 'arguments' -%}{%- assign title = 'Порядок проверок при запуске' -%}
+  {%- when 'workspace' -%}{%- assign title = 'От рабочих каталогов до distfiles' -%}
+  {%- when 'timing' -%}{%- assign title = 'Что остаётся после shift' -%}
+  {%- when 'git' -%}{%- assign title = 'Куда ведёт ссылка тега' -%}
+  {%- when 'remote' -%}{%- assign title = 'Записи из git ls-remote' -%}
+  {%- when 'read' -%}{%- assign title = 'От stdin к direct и peeled' -%}
+  {%- when 'resolve' -%}{%- assign title = 'Какой ID получит upstream_commit' -%}
+  {%- when 'checkout' -%}{%- assign title = 'Первый запрос, clone и HEAD' -%}
+  {%- when 'grep' -%}{%- assign title = 'Что именно считает grep' -%}
+  {%- when 'timeline' -%}{%- assign title = 'Проверки по ходу получения исходников' -%}
+  {%- when 'tree' -%}{%- assign title = 'Одно дерево в Git и в tar.gz' -%}
+  {%- when 'fingerprints' -%}{%- assign title = 'Два SHA-256 из двух наборов байтов' -%}
+{%- endcase -%}
+<div class="figure lesson-figure shell-lab acquisition-lab" data-shell-lab="acq-{{ include.lab }}"{% if include.lab == 'timeline' %} id="acquisition-timeline"{% endif %}>
+<h3>{{ title }}</h3>
+<div class="lab-controls" data-lab-controls hidden>
+{% case include.lab %}
+{% when 'transfer' %}
+  <label>Аргумент <select name="stage">
+    <option value="version">$1 · версия</option><option value="ebuild">$2 · ebuild</option>
+    <option value="patch">$3 · patch</option><option value="overlay">$4 · каталог оверлея</option>
+  </select></label>
+{% when 'arguments' %}
+  <label>Сценарий <select name="scenario">
+    <option value="ok">Все значения заданы</option><option value="version">Версия отсутствует</option>
+    <option value="empty">Версия пустая</option><option value="candidate">Путь к ebuild отсутствует</option>
+    <option value="patch">Путь к patch отсутствует</option><option value="overlay">Путь к оверлею отсутствует</option>
+    <option value="temp">RUNNER_TEMP отсутствует</option><option value="format">Неверный формат версии</option>
+  </select></label>
+{% when 'workspace' %}
+  <label>Начальное состояние <select name="scenario"><option value="ok">Новый каталог</option><option value="exists">work уже существует</option></select></label>
+  <label>Шаг <select name="step">
+    <option>mkdir work</option><option>mkdir dist, cache, logs</option><option>Присваивания путей и времени</option>
+    <option>Git checkout</option><option>Скачивание tar.gz</option><option>Распаковка исходников</option>
+    <option>Позднее · crates и JSON</option>
+  </select></label>
+{% when 'timing' %}
+  <label>Вызов <select name="scenario">
+    <option value="actual">Вызов acquire_source</option><option value="print">Учебный printf · успех</option>
+    <option value="fail">Учебный test · ошибка</option>
+  </select></label>
+  <label>Шаг <select name="step">
+    <option>Исходные параметры</option><option>label и shift</option><option>Выполнение "$@"</option><option>Длительность</option>
+  </select></label>
+{% when 'git' %}
+  <label>Тип тега <select name="scenario"><option value="light">Lightweight tag</option><option value="annotated">Annotated tag</option></select></label>
+{% when 'remote', 'read', 'resolve' %}
+  <label>Ответ <select name="scenario">
+    <option value="light">Lightweight tag</option><option value="annotated">Annotated tag</option>
+    <option value="empty">Нет записей</option><option value="unexpected">Неожиданная ссылка</option>
+    <option value="malformed">Некорректный ID</option>
+  </select></label>
+  {% if include.lab == 'read' %}
+  <label>Шаг <select name="step">
+    <option>Ввод перед read</option><option>read первой строки</option><option>case для первой строки</option>
+    <option>Попытка прочитать вторую строку</option><option>case для второй строки</option><option>Конец ввода</option>
+  </select></label>
+  {% elsif include.lab == 'resolve' %}
+  <label><input type="checkbox" name="inherit"> Включить inherit_errexit</label>
+  {% endif %}
+{% when 'checkout', 'timeline' %}
+  <label>Сценарий <select name="scenario">
+    <option value="ok">Стабильный тег</option><option value="moved">Тег изменился до clone</option>
+    <option value="clone">Clone не удался</option><option value="head">HEAD отличается от ожидаемого</option>
+    {% if include.lab == 'timeline' %}
+    <option value="ebuild">Совпадений в ebuild нет</option><option value="download">Загрузка прервана</option>
+    <option value="second">Тег изменился после clone</option><option value="returned">Тег изменился и вернулся</option>
+    <option value="verify">Архив отличается от дерева</option>
+    {% endif %}
+  </select></label>
+  {% if include.lab == 'timeline' %}
+  <label>Операция <select name="stage">
+    <option value="result">Место остановки или итог</option>
+    <option value="0">Первый запрос</option><option value="1">Clone</option><option value="2">Сравнение HEAD</option>
+    <option value="3">Проверка ebuild</option><option value="4">Скачивание</option><option value="5">Второй запрос и сравнение</option>
+    <option value="6">Сверка дерева</option><option value="7">Извлечение</option>
+    <option value="8">SHA-256</option><option value="9">Длительность</option>
+  </select></label>
+  {% endif %}
+{% when 'grep' %}
+  <label>Фрагмент ebuild <select name="scenario">
+    <option value="one">Одна совпавшая строка</option><option value="none">Нет совпадений</option>
+    <option value="two">Две совпавшие строки</option><option value="same">Два вхождения на одной строке</option>
+  </select></label>
+{% when 'tree' %}
+  <label>Архив <select name="scenario">
+    <option value="ok">Полное совпадение</option><option value="content">Файл изменён</option>
+    <option value="missing">Файл отсутствует</option><option value="extra">Неожиданный путь</option>
+    <option value="root">Другой корень</option><option value="duplicate">Повторная запись</option>
+    <option value="mode">Неверный признак исполнения</option><option value="type">Другой тип записи</option>
+    <option value="link">Изменена цель ссылки</option>
+  </select></label>
+{% when 'fingerprints' %}
+  <label>Какие байты читает sha256sum <select name="scenario">
+    <option value="archive">Сжатый архив</option><option value="lock">Извлечённый Cargo.lock</option>
+  </select></label>
+{% endcase %}
+{% if include.lab == 'workspace' or include.lab == 'timing' or include.lab == 'read' %}
+  <div class="shell-step-buttons"><button type="button" data-step="-1">Назад</button><button type="button" data-step="1">Вперёд</button></div>
+{% endif %}
+</div>
+
+{% case include.lab %}
+{% when 'transfer' %}
+<ul class="candidate-arguments" role="list">
+  <li class="workspace shell-focus" data-stage="version"><div><code>$candidate_version</code><span aria-hidden="true">→</span><code>$1 → version</code></div><code>1.29.0</code></li>
+  <li class="workspace" data-stage="ebuild"><div><code>$disposable_workspace/$candidate_ebuild</code><span aria-hidden="true">→</span><code>$2 → candidate</code></div><code>/home/runner/work/_temp/zed-overlay/app-editors/zed/zed-1.29.0.ebuild</code></li>
+  <li class="workspace" data-stage="patch"><div><code>$disposable_workspace/$candidate_patch</code><span aria-hidden="true">→</span><code>$3 → patch</code></div><code>/home/runner/work/_temp/zed-overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch</code></li>
+  <li class="workspace" data-stage="overlay"><div><code>$disposable_workspace</code><span aria-hidden="true">→</span><code>$4 → overlay</code></div><code>/home/runner/work/_temp/zed-overlay</code></li>
+</ul>
+{% when 'arguments' %}
+<dl class="acq-values">
+  <dt>$1 · version</dt><dd><code data-value="version">1.29.0</code></dd>
+  <dt>$2 · candidate</dt><dd><code data-value="candidate">/home/runner/work/_temp/zed-overlay/app-editors/zed/zed-1.29.0.ebuild</code></dd>
+  <dt>$3 · patch</dt><dd><code data-value="patch">/home/runner/work/_temp/zed-overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch</code></dd>
+  <dt>$4 · overlay</dt><dd><code data-value="overlay">/home/runner/work/_temp/zed-overlay</code></dd>
+  <dt>Окружение</dt><dd><code>RUNNER_TEMP=<span data-value="temp">/home/runner/work/_temp</span></code></dd>
+</dl>
+{% include acquisition-gates.html labels="$1 · строка 5|$2 · строка 6|$3 · строка 7|$4 · строка 8|RUNNER_TEMP · строка 9|Формат версии · строка 10" %}
+{% when 'workspace' %}
+<div class="shell-path-tree acquisition-workspace">
+  <ul role="list"><li><code>RUNNER_TEMP/</code>
+    <ul role="list">
+      <li><code>zed-overlay/</code><small>Готовая копия родителя</small></li>
+      <li data-node="work"><code>zed-independent/</code><small data-state>Каталог создан</small>
+        <ul role="list">
+          <li data-node="checkout"><code>checkout/</code><small data-state>Появится при clone</small></li>
+          <li data-node="source"><code>source/</code><small data-state>Появится после проверки дерева</small>
+            <ul role="list"><li data-node="source_dir"><code>zed-1.29.0/</code><small data-state>Появится при распаковке</small></li></ul>
+          </li>
+          <li data-node="dist"><code>dist/</code><small data-state>Появится при втором mkdir</small>
+            <ul role="list">
+              <li data-node="source_archive"><code>zed-1.29.0.tar.gz</code><small data-state>Скачивание исходников</small></li>
+              <li data-node="archive"><code>zed-1.29.0-overlay-crates.tar.xz</code><small data-state>Генерация или повторное использование</small></li>
+              <li data-node="metadata"><code>zed-1.29.0-overlay-crates.json</code><small data-state>Генерация или повторное использование</small></li>
+            </ul>
+          </li>
+          <li data-node="cache"><code>cache/</code><small data-state>Появится при втором mkdir</small></li>
+          <li data-node="logs"><code>logs/</code><small data-state>Появится при втором mkdir</small></li>
+        </ul>
+      </li>
+    </ul>
+  </li></ul>
+</div>
+{% when 'timing' %}
+<dl class="acq-values">
+  <dt>Параметры на входе</dt><dd><pre data-value="before">$1 = Upstream source acquisition
+$2 = acquire_source</pre></dd>
+  <dt><code>label</code></dt><dd><code data-value="label">Upstream source acquisition</code></dd>
+  <dt>После <code>shift</code></dt><dd><pre data-value="after">$1 = acquire_source</pre></dd>
+  <dt><code>"$@"</code> как команда</dt><dd><code data-value="command">acquire_source</code></dd>
+  <dt><code>started → SECONDS</code></dt><dd><code data-value="timer">12 → 19</code></dd>
+  <dt>Строка в <code>summary</code></dt><dd><code data-value="summary">Upstream source acquisition: 7s</code></dd>
+</dl>
+{% when 'git' %}
+<div class="acq-git" role="group" aria-label="Учебные Git-объекты">
+  <div class="acq-git-row shell-focus" data-tag-type="light">
+    <span><small>Lightweight tag</small><code>refs/tags/v1.29.0</code></span>
+    <span aria-hidden="true">→</span>
+    <span><small>Commit</small><code>2222222222222222222222222222222222222222</code></span>
+  </div>
+  <div class="acq-git-row" data-tag-type="annotated">
+    <span><small>Annotated tag</small><code>refs/tags/v1.29.0</code></span>
+    <span aria-hidden="true">→</span>
+    <span><small>Tag object</small><code>1111111111111111111111111111111111111111</code></span>
+    <span aria-hidden="true">→</span>
+    <span><small>Commit · <code>^{}</code></small><code>2222222222222222222222222222222222222222</code></span>
+  </div>
+</div>
+{% when 'remote', 'read' %}
+<figure class="acq-records">
+  <figcaption>Учебный ответ <code>ls-remote</code> · <code>⇥</code> обозначает один TAB</figcaption>
+  <pre data-value="raw">2222222222222222222222222222222222222222⇥refs/tags/v1.29.0</pre>
+</figure>
+{% if include.lab == 'remote' %}
+<table class="acq-record-table">
+  <thead><tr><th scope="col">Object ID</th><th scope="col">Имя ссылки</th></tr></thead>
+  <tbody data-remote-fields><tr><td><code>2222222222222222222222222222222222222222</code></td><td><code>refs/tags/v1.29.0</code></td></tr></tbody>
+</table>
+{% else %}
+<dl class="acq-values">
+  <dt>Текущая строка</dt><dd><code data-value="line">2222222222222222222222222222222222222222⇥refs/tags/v1.29.0</code></dd>
+  <dt><code>object</code></dt><dd><code data-value="object">2222222222222222222222222222222222222222</code></dd>
+  <dt><code>ref</code></dt><dd><code data-value="ref">refs/tags/v1.29.0</code></dd>
+  <dt>Ветвь <code>case</code></dt><dd><code data-value="branch">refs/tags/v1.29.0 → direct</code></dd>
+  <dt><code>direct</code></dt><dd><code data-value="direct">2222222222222222222222222222222222222222</code></dd>
+  <dt><code>peeled</code></dt><dd><code data-value="peeled">""</code></dd>
+  <dt>Осталось во вводе</dt><dd><pre data-value="remaining">EOF</pre></dd>
+</dl>
+{% endif %}
+{% when 'resolve' %}
+<dl class="acq-values">
+  <dt><code>direct</code></dt><dd><code data-value="direct">2222222222222222222222222222222222222222</code></dd>
+  <dt><code>peeled</code></dt><dd><code data-value="peeled">""</code></dd>
+  <dt><code>printf</code> → stdout</dt><dd><code data-value="stdout">2222222222222222222222222222222222222222</code></dd>
+  <dt><code>upstream_commit</code></dt><dd><code data-value="commit">2222222222222222222222222222222222222222</code></dd>
+</dl>
+{% when 'checkout', 'timeline' %}
+<dl class="acq-values">
+  <dt>Первый запрос</dt><dd><code data-value="initial">refs/tags/v1.29.0 → 2222222222222222222222222222222222222222</code></dd>
+  <dt><code>upstream_commit</code></dt><dd><code data-value="expected">2222222222222222222222222222222222222222</code></dd>
+  <dt>Тег при clone</dt><dd><code data-value="clone">2222222222222222222222222222222222222222</code></dd>
+  <dt>Фактический <code>HEAD</code></dt><dd><code data-value="head">2222222222222222222222222222222222222222</code></dd>
+  {% if include.lab == 'timeline' %}
+  <dt>Второй запрос</dt><dd><code data-value="second">2222222222222222222222222222222222222222</code></dd>
+  {% endif %}
+  <dt>На диске и в переменных</dt><dd><pre data-value="state">{% if include.lab == 'timeline' %}checkout/
+dist/zed-1.29.0.tar.gz
+source/zed-1.29.0/
+source_hash, lock_hash{% else %}checkout/{% endif %}</pre></dd>
+</dl>
+{% if include.lab == 'checkout' %}
+{% include acquisition-gates.html labels="Первый запрос тега|Clone выбранного тега|Сверка HEAD" %}
+{% else %}
+<p class="acq-trace-label">Итог сценария</p>
+{% include acquisition-gates.html labels="Первый запрос тега|Clone выбранного тега|Сверка HEAD|Проверка ebuild|Скачивание архива|Второй запрос и сверка тега|Сверка архива с Git tree|Распаковка|SHA-256 и запись отпечатков|Запись длительности" %}
+{% endif %}
+{% when 'grep' %}
+<div class="acq-records">
+  <small>Учебный фрагмент ebuild</small>
+  <pre data-value="fragment">SRC_URI="https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz"</pre>
+</div>
+<dl class="acq-values">
+  <dt>stdout <code>grep -Fc</code></dt><dd><code data-value="count">1</code></dd>
+  <dt>Сравнение</dt><dd><code data-value="comparison">test "1" = 1</code></dd>
+</dl>
+{% include acquisition-gates.html labels="Проверка ebuild|Загрузка архива" %}
+{% when 'tree' %}
+<p>Подсветка показывает, какую запись сравнивает валидатор. Пути и содержимое учебные.</p>
+<div class="shell-file-grid acq-trees">
+  <section class="workspace shell-path-tree">
+    <h4>Git commit tree</h4>
+    <ul role="list"><li class="acq-tree-root"><code>./</code>
+    <ul role="list">
+      <li class="shell-path-current" data-entry="lock"><code>Cargo.lock</code><small>100644 · байты lock-файла</small></li>
+      <li data-entry="toml"><code>Cargo.toml</code><small>100644 · байты манифеста Cargo</small></li>
+      <li><code>src/</code><ul role="list"><li data-entry="rust"><code>main.rs</code><small>100644 · байты Rust-файла</small></li></ul></li>
+      <li><code>scripts/</code><ul role="list"><li data-entry="exec"><code>build.sh</code><small>100755 · исполняемый файл</small></li></ul></li>
+      <li data-entry="link"><code>lock-link</code><small>120000 · цель Cargo.lock</small></li>
+    </ul>
+    </li></ul>
+  </section>
+  <section class="workspace shell-path-tree">
+    <h4>Архив tar.gz</h4>
+    <ul role="list"><li data-entry="root"><code data-value="archive-root">zed-1.29.0/</code>
+      <ul role="list">
+        <li class="shell-path-current" data-entry="lock"><code>Cargo.lock</code><small data-value="archive-lock">Файл · исходные байты</small></li>
+        <li data-entry="toml"><code>Cargo.toml</code><small>Файл · исходные байты</small></li>
+        <li><code>src/</code><ul role="list"><li data-entry="rust"><code>main.rs</code><small data-value="archive-rust">Файл · исходные байты</small></li></ul></li>
+        <li><code>scripts/</code><ul role="list"><li data-entry="exec"><code>build.sh</code><small data-value="archive-exec">Файл · mode 0755</small></li></ul></li>
+        <li data-entry="link"><code>lock-link</code><small data-value="archive-link">Symlink → Cargo.lock</small></li>
+        <li data-entry="extra" hidden><code>extra.txt</code><small>Файл · лишняя запись</small></li>
+        <li data-entry="duplicate" hidden><code>Cargo.lock</code><small>Повторная запись</small></li>
+      </ul>
+    </li></ul>
+  </section>
+</div>
+<dl class="acq-values">
+  <dt>Проверка</dt><dd data-value="check">Пути, типы, признак исполнения и Git blob ID</dd>
+  <dt>Ожидается</dt><dd data-value="expected">Все пять Git-путей с исходными данными</dd>
+  <dt>В архиве</dt><dd data-value="actual">Все пять путей совпали</dd>
+</dl>
+<pre class="acq-diagnostic" data-value="diagnostic">Source archive matches the upstream Git commit tree: OK</pre>
+{% include acquisition-gates.html labels="Архив совпадает с Git tree|Скрипт доходит до распаковки" %}
+{% when 'fingerprints' %}
+<p class="acq-provenance"><code>v1.29.0</code> → <code>2222222222222222222222222222222222222222</code> → проверенный архив</p>
+<div class="acq-fingerprints">
+  <p class="shell-focus" data-fingerprint="archive"><code>dist/zed-1.29.0.tar.gz</code><small>Все сжатые байты → <code>source_hash</code></small><code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code></p>
+  <p data-fingerprint="lock"><code>source/zed-1.29.0/Cargo.lock</code><small>Байты одного извлечённого файла → <code>lock_hash</code></small><code>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</code></p>
+</div>
+<pre class="acq-diagnostic">Upstream tag: v1.29.0; commit: 2222222222222222222222222222222222222222; source archive SHA256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; Cargo.lock SHA256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</pre>
+{% endcase %}
+
+<p class="model-result" role="status">{% case include.lab %}
+{% when 'transfer' %}Значение candidate_version переходит через $1 в version.
+{% when 'arguments' %}Все шесть проверок прошли. Bash доходит до mkdir.
+{% when 'workspace' %}На первом шаге существует только zed-independent. Вложенные пути показаны как будущие.
+{% when 'timing' %}Успешный вызов acquire_source занял в примере 7 секунд.
+{% when 'git' %}У lightweight tag прямая ссылка уже содержит ID коммита. Все ID здесь учебные.
+{% when 'remote' %}Лёгкий тег даёт одну запись.
+{% when 'read' %}Первый read успешен, case записывает direct. Следующий read достигает EOF.
+{% when 'resolve' %}peeled пуста. printf отдаёт direct, присваивание возвращает 0.
+{% when 'checkout' %}HEAD совпадает с upstream_commit. До проверки ebuild можно дойти.
+{% when 'timeline' %}Все этапы выполнены. Локальные файлы и отпечатки готовы.
+{% when 'grep' %}Одна строка совпала. Сравнение возвращает 0.
+{% when 'tree' %}Первая ошибка отсутствует. Скрипт доходит до распаковки.
+{% when 'fingerprints' %}Строка 54 читает сжатый файл целиком.
+{% endcase %}</p>
+{{ include.previews }}
+</div>

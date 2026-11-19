@@ -1,0 +1,6 @@
+{% assign gates = include.labels | split: '|' %}
+<ol class="shell-gates acq-gates">
+{% for gate in gates %}
+  <li class="flow-node" data-gate-state="PASS"><span>{{ gate | escape }}</span><span class="lesson-status" data-status="PASS">PASS</span></li>
+{% endfor %}
+</ol>

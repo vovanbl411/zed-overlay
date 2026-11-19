@@ -108,8 +108,12 @@ covers candidate discovery, path validation, and the post-container Manifest
 checks. It passed owner and static review. Phase 3.3 covers disposable overlay
 policy and source checkout validation. It passed owner and static review.
 
-All four implementation phases of the `validate-release-candidate.sh`
-walkthrough are complete. Phase 3.4 covers completion branches, release handoff,
-the metadata digest, distribution validation, and GitHub Actions outputs. It
-awaits final owner review. The next script for the handbook is
-`independent-crates.sh`.
+The complete `validate-release-candidate.sh` walkthrough was accepted and
+integrated into `main` in PR #50. Phase 3.4 covered completion branches, the
+release handoff, the metadata digest, distribution validation, and GitHub
+Actions outputs.
+
+Phase 4.1 of `independent-crates.sh` covers
+startup and upstream source acquisition, including Git-tree verification and
+local fingerprints. It is implemented and awaits owner review. The next phase
+covers environment preparation and generation or reuse of the crates archive.

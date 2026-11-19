@@ -12,11 +12,13 @@
           <li><a href="{{ walkthrough | relative_url }}"{% if page.url == walkthrough %} aria-current="page"{% endif %}>Разбор YAML</a></li>
         </ul>
       </li>
+      {% assign acquisition = '/internals/02-shell-scripts/independent-crates/' %}
       {% assign shell_walkthrough = '/internals/02-shell-scripts/validate-release-candidate/' %}
       <li class="chapter-links">
         <a href="{{ shell_walkthrough | relative_url }}"><span>02</span> Shell scripts</a>
         <ul>
           <li><a href="{{ shell_walkthrough | relative_url }}"{% if page.url == shell_walkthrough %} aria-current="page"{% endif %}>Подготовка кандидата Zed</a></li>
+          <li><a href="{{ acquisition | relative_url }}"{% if page.url == acquisition %} aria-current="page"{% endif %}>Подготовка crates и проверка исходников</a></li>
         </ul>
       </li>
       <li class="planned"><span>03</span> Python scripts <small>В планах</small></li>
