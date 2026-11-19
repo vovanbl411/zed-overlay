@@ -106,5 +106,10 @@ review, static review, and owner visual acceptance.
 Phase 3.1 of Chapter 02 is implemented and passed static review. Phase 3.2
 covers candidate discovery, path validation, and the post-container Manifest
 checks. It passed owner and static review. Phase 3.3 covers disposable overlay
-policy and source checkout validation through the transition to line 160. It is
-implemented, validated locally, and awaiting owner review.
+policy and source checkout validation. It passed owner and static review.
+
+All four implementation phases of the `validate-release-candidate.sh`
+walkthrough are complete. Phase 3.4 covers completion branches, release handoff,
+the metadata digest, distribution validation, and GitHub Actions outputs. It
+awaits final owner review. The next script for the handbook is
+`independent-crates.sh`.

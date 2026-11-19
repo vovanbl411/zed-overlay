@@ -1,6 +1,7 @@
 import {traceReleaseGates} from './handbook.js';
 import {candidateLabs} from './candidate-labs.js';
 import {workspaceLabs} from './workspace-labs.js';
+import {completionLabs} from './completion-labs.js';
 
 const checkout = '/home/runner/work/zed-overlay/zed-overlay';
 const runnerTemp = '/home/runner/work/_temp';
@@ -214,6 +215,7 @@ const labs = {
   environment, function: functionTrace, mode, paths, filesystem, snapshot, streams, pipeline, boundary,
   ...candidateLabs(highlight),
   ...workspaceLabs(highlight, runnerTemp, checkout),
+  ...completionLabs(highlight),
 };
 
 for (const lab of document.querySelectorAll('[data-shell-lab]')) {
@@ -261,6 +263,9 @@ for (const lab of document.querySelectorAll('[data-shell-lab]')) {
     });
   }
   box.addEventListener('change', render);
+  for (const slider of box.querySelectorAll('input[type="range"]')) {
+    slider.addEventListener('input', render);
+  }
   render();
   box.hidden = false;
 }
