@@ -30,8 +30,11 @@ export function integrityLabs() {
       const selection = cases[scenario.value];
       panels.forEach((panel, index) => {
         panel.textContent = selection.values[index];
+        if (selection.active_panel !== undefined) {
+          panel.parentElement.classList.toggle('integrity-output', index === selection.active_panel);
+        }
       });
-      const states = Array.from(gates, (_, index) => {
+      const states = selection.states ?? Array.from(gates, (_, index) => {
         if (selection.fail === undefined || index < selection.fail) return 'PASS';
         if (selection.cleanup && index === gates.length - 1) return 'PASS';
         return index === selection.fail ? 'FAIL' : 'SKIP';
