@@ -36,7 +36,7 @@
   <div class="shell{% if page.sections %} chapter-shell{% endif %}">
     {% include navigation.html %}
     {% if page.sections %}
-    <nav class="page-nav" aria-label="Разделы главы">
+    <nav class="page-nav{% if page.scroll_page_nav %} page-nav-scroll{% endif %}" aria-label="Разделы главы">
       <p class="eyebrow">В этой главе</p>
       <ol>
         {% for section in page.sections %}

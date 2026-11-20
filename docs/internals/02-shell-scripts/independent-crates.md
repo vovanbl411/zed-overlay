@@ -1,11 +1,12 @@
 ---
 layout: handbook
 title: Bash — подготовка crates и проверка исходников
-description: От аргументов дочернего Bash и проверки исходников Zed до локального crates-архива и метаданных.
+description: От проверки исходников Zed и подготовки crates-архива до сверки локальных входов и обновления метаданных ebuild.
 chapter: 2
 eyebrow: Глава 02 / Shell scripts
 permalink: /internals/02-shell-scripts/independent-crates/
 shell_labs: true
+scroll_page_nav: true
 sections:
   - { id: parent, label: "4.1. От родительского скрипта к подготовке crates" }
   - { id: arguments, label: "4.2. Получаем и проверяем аргументы" }
@@ -33,6 +34,19 @@ sections:
   - { id: distribution-metadata, label: "4.24. Формируем distribution metadata" }
   - { id: reuse, label: "4.25. Переиспользуем опубликованный архив" }
   - { id: preparation-convergence, label: "4.26. Сравниваем результаты generation и reuse" }
+  - { id: common-integrity, label: "4.27. Возвращаемся к общему пути проверки" }
+  - { id: lock-integrity, label: "4.28. Повторно проверяем Cargo.lock" }
+  - { id: source-reconstruction, label: "4.29. Восстанавливаем эталонное дерево исходников" }
+  - { id: recursive-source-diff, label: "4.30. Сравниваем деревья через diff" }
+  - { id: distribution-identity, label: "4.31. Проверяем identity архива и метаданных" }
+  - { id: copy-git-distfiles, label: "4.32. Переносим Git archives в distfiles" }
+  - { id: compare-git-crates, label: "4.33. Читаем и сравниваем GIT_CRATES" }
+  - { id: validate-git-archives, label: "4.34. Проверяем Git archives и Cargo.toml" }
+  - { id: replace-git-block, label: "4.35. Обновляем блок GIT_CRATES в кандидате" }
+  - { id: curated-offline-substitutions, label: "4.36. Сохраняем offline substitutions и WebRTC pin" }
+  - { id: license-term-differences, label: "4.37. Сравниваем лицензионные термины" }
+  - { id: migrate-crates-uri, label: "4.38. Обновляем SRC_URI" }
+  - { id: metadata-synchronization-flow, label: "4.39. Завершаем синхронизацию метаданных" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -1368,3 +1382,798 @@ timed 'Metadata and source integrity validation' verify_inputs{% endraw %}{% end
 
 {% capture crates_source_40 %}{% raw %}timed 'Metadata and source integrity validation' verify_inputs{% endraw %}{% endcapture %}
 {% include source-preview.html source=crates_source_40 label="Следующая общая команда · строка 163" path="scripts/ci/independent-crates.sh" revision=revision start=163 open=true %}
+
+## 4.27. Возвращаемся к общему пути проверки {#common-integrity}
+
+{% capture integrity_source %}{% raw %}timed 'Metadata and source integrity validation' verify_inputs
+timed 'GIT_CRATES synchronization' sync_metadata{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Общие вызовы после generation и reuse · строки 163–164" path=script revision=revision start=163 open=true %}
+
+После `esac` обе успешные ветки сходятся в одной точке. В [лаборатории 4.26](#preparation-convergence) можно переключить generation и reuse и увидеть общие входы: распакованные исходники, исходный `.tar.gz`, архив registry crates, JSON с метаданными дистрибутива, кеш Git-архивов и `generated-zed.ebuild`.
+
+Первый `timed` вызывает `verify_inputs` и записывает длительность в сводку. Только после его успешного завершения запускается второй `timed` с `sync_metadata`. Подготовленные файлы должны пройти обе общие функции, прежде чем Bash дойдёт до проверки кандидата в Portage.
+
+## 4.28. Повторно проверяем Cargo.lock {#lock-integrity}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}verify_inputs() {
+  test "$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)" = "$lock_hash"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Сравнение сохранённого и текущего SHA-256 · строки 95–96" path=script revision=revision start=95 %}
+{% capture integrity_source %}{% raw %}  lock_hash="$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Первоначальный отпечаток Cargo.lock · строка 53" path=script revision=revision start=53 %}
+{% capture integrity_source %}{% raw %}  mkdir "$work/source-verify"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Следующая команда после сравнения · строка 97" path=script revision=revision start=97 %}
+{% endcapture %}
+{% include integrity-lab.html lab="lock-integrity" previews=integrity_previews %}
+
+На строке 53 `lock_hash` сохранил дайджест после первоначальной распаковки. Теперь [тот же конвейер](#fingerprints) повторно читает рабочий `Cargo.lock`. `sha256sum` выдаёт контрольную сумму и имя файла, `cut` оставляет первое поле, а подстановка команды передаёт stdout как один строковый аргумент `test`. Сравнение показывает, сохранился ли lock-файл, который использовался при подготовке архива.
+
+Внешний `test` возвращает собственный код по результату сравнения строк. Ошибка `sha256sum` сама по себе в этот код не переносится. В примере с отсутствующим файлом `sha256sum` пишет диагностику в stderr, `cut` получает пустой поток и завершается с кодом 0. При `pipefail` код конвейера равен 1, но для внешнего `test` важен пустой stdout: он отличается от сохранённой непустой строки. `test` возвращает 1, и `errexit` останавливает сценарий до `mkdir`. Дайджесты в лаборатории вымышлены.
+
+## 4.29. Восстанавливаем эталонное дерево исходников {#source-reconstruction}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}  mkdir "$work/source-verify"
+  tar -xzf "$source_archive" -C "$work/source-verify"
+  diff -qr --no-dereference "$source_dir" "$work/source-verify/zed-${version}"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Каталог, повторная распаковка и сравнение · строки 97–99" path=script revision=revision start=97 %}
+{% capture integrity_source %}{% raw %}  mkdir "$work/source"
+  tar -xzf "$source_archive" -C "$work/source"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Первая распаковка · строки 51–52" path=script revision=revision start=51 %}
+{% endcapture %}
+{% include integrity-lab.html lab="source-rebuild" previews=integrity_previews %}
+
+Первая распаковка подготовила дерево, с которым работала ветка generation или reuse. Теперь `mkdir` сначала создаёт отдельный пустой каталог, затем `tar -xzf` распаковывает в него текущий **локальный** `source_archive`. `-C` задаёт каталог назначения. При сбое `mkdir` запуск `tar` пропускается. Если `tar` успел извлечь часть файлов, они могут остаться в новом каталоге.
+
+```text
+zed-independent/
+├── dist/
+│   └── zed-1.29.0.tar.gz
+├── source/
+│   └── zed-1.29.0/
+└── source-verify/
+    └── zed-1.29.0/
+```
+
+В роли эталона выступает дерево, которое получилось из локального архива во второй раз. Здесь нет повторного скачивания и повторного вызова `verify_zed_source.py`. Если с момента acquisition архив на диске изменился, повторная распаковка читает уже изменившийся файл.
+
+## 4.30. Сравниваем деревья через diff {#recursive-source-diff}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}  diff -qr --no-dereference "$source_dir" "$work/source-verify/zed-${version}"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" identity \{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Сравнение деревьев и следующая команда · строки 99–100" path=script revision=revision start=99 %}
+{% endcapture %}
+{% include integrity-lab.html lab="recursive-diff" previews=integrity_previews %}
+
+`diff` получает рабочее дерево первым аргументом, повторно распакованное — вторым. `-q` сообщает о различиях без полного построчного diff, `-r` спускается во вложенные каталоги, `--no-dereference` сравнивает сами символические ссылки и их цели. Код 0 означает, что различий не обнаружено, 1 — есть различия, 2 — возникла проблема сравнения. В этом потоке оба ненулевых кода останавливают Bash.
+
+Изменённый или отсутствующий `Cargo.lock` остановил бы запуск ещё на предыдущем сравнении. Здесь меняется другой файл, например `Cargo.toml`, при уже проверенном lock. Сравнение ограничено правилами `diff`: одинаковый обычный файл с разными битами исполнения даёт код 0. Владелец, временные метки и расширенные атрибуты выходят за рамки такой сверки. Сценарии со ссылкой и правами проверены на GNU diffutils 3.12.
+
+## 4.31. Проверяем identity архива и метаданных {#distribution-identity}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" identity \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --lock "$source_dir/Cargo.lock" --archive "$archive" --metadata "$metadata"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Аргументы команды identity · строки 100–102" path=script revision=revision start=100 %}
+{% capture integrity_source %}{% raw %}    identity = sub.add_parser('identity')
+    for name in ('version', 'commit', 'source-archive', 'lock', 'archive', 'metadata'):
+        identity.add_argument('--' + name, required=True){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Аргументы CLI · строки 213–215" path="scripts/crates_distribution.py" revision=revision start=213 %}
+{% capture integrity_source %}{% raw %}        elif args.action == 'identity':
+            data = read_metadata(Path(args.metadata), args.version)
+            validate_archive(data, Path(args.archive))
+            validate_identity(data, args.commit, Path(args.source_archive), Path(args.lock)){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Порядок трёх проверок · строки 229–232" path="scripts/crates_distribution.py" revision=revision start=229 %}
+{% capture integrity_source %}{% raw %}def read_metadata(path: Path, version: str) -> dict:
+    regular(path)
+    if path.stat().st_size > 1_000_000:
+        raise ValueError('Metadata is too large')
+    return validate_metadata(json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique_object), version){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Чтение и проверка JSON · строки 93–97" path="scripts/crates_distribution.py" revision=revision start=93 %}
+{% capture integrity_source %}{% raw %}    if type(data['schema_version']) is not int or data['schema_version'] != 1:
+        raise ValueError('Unsupported metadata schema version'){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Ошибка версии схемы · строки 57–58" path="scripts/crates_distribution.py" revision=revision start=57 %}
+{% capture integrity_source %}{% raw %}def validate_archive(data: dict, archive: Path) -> None:
+    regular(archive)
+    if archive.name != data['archive']['filename'] or archive.stat().st_size != data['archive']['size'] or sha256(archive) != data['archive']['sha256']:
+        raise ValueError('Archive does not match metadata'){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Имя, размер и SHA-256 crates-архива · строки 121–124" path="scripts/crates_distribution.py" revision=revision start=121 %}
+{% capture integrity_source %}{% raw %}def validate_identity(data: dict, commit: str, source_archive: Path, lock: Path) -> None:
+    if (data['upstream_commit'] != commit or data['source_sha256'] != sha256(source_archive) or
+            data['cargo_lock_sha256'] != sha256(lock)):
+        raise ValueError('Upstream commit, source archive or Cargo.lock mismatch')
+    expected = snapshot.parse_lock(lock)
+    actual = snapshot.parse_git_crates(sync.entries_block(data['git_crates']))
+    errors = snapshot.compare_snapshots(expected, actual)
+    if errors:
+        raise ValueError('\n'.join(errors)){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Upstream identity и Git-снимок · строки 127–135" path="scripts/crates_distribution.py" revision=revision start=127 %}
+{% capture integrity_source %}{% raw %}    except (OSError, ValueError, KeyError, json.JSONDecodeError, snapshot.CargoSnapshotError, release_handoff.HandoffError) as error:
+        print(f'Distribution validation failed: {error}', file=sys.stderr)
+        return 1
+    print(f'Distribution {args.action}: OK')
+    return 0{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Диагностика CLI · строки 240–244" path="scripts/crates_distribution.py" revision=revision start=240 %}
+{% capture integrity_source %}{% raw %}        if upstream_crate.commit != ebuild_crate.commit:
+            errors.append(
+                f"{name}: revision differs (upstream {upstream_crate.commit}, "
+                f"ebuild {ebuild_crate.commit})."{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Диагностика различия ревизий · строки 277–280" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=277 %}
+{% endcapture %}
+{% include integrity-lab.html lab="distribution-identity" previews=integrity_previews %}
+
+CLI выполняет три вызова последовательно.
+
+1. `read_metadata` требует обычный файл, ограничивает размер JSON миллионом байт, читает UTF-8, отклоняет повторные ключи и проверяет [схему метаданных](#distribution-metadata) для указанной версии.
+2. `validate_archive` требует обычный файл crates-архива и сверяет имя, размер и SHA-256 с JSON. Условия вычисляются слева направо. При расхождении размера дайджест уже не вычисляется.
+3. `validate_identity` сравнивает коммит и **текущие** SHA-256 исходного архива и lock-файла со значениями из JSON. Затем строит два Git-снимка: из `Cargo.lock` и из `git_crates` в JSON. При несовпадении CLI печатает первую возникшую ошибку со своим префиксом в stderr и возвращает 1. При успехе stdout содержит `Distribution identity: OK`.
+
+У этих проверок разные точки отсчёта. [Первичная сверка](#tree-verification) сопоставляет исходный архив с Git tree. `test` сверяет lock с сохранённым Bash-отпечатком. `diff` сравнивает рабочее дерево с повторной распаковкой. `identity` проверяет согласованность текущих локальных файлов с distribution metadata, как и на [пути reuse](#reuse). Ранее вычисленный `source_hash` попал в сводку acquisition. Среди аргументов `identity` его нет. Согласованные изменения нескольких входов могут пройти проверку согласованности, поэтому один её успех не служит независимым подтверждением неизменности файлов.
+
+## 4.32. Переносим Git archives в distfiles {#copy-git-distfiles}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}  cp -n "$work/cache/"*.gh.tar.gz "$work/dist/"
+}{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Копирование Git-архивов · строки 103–104" path=script revision=revision start=103 %}
+{% capture integrity_source %}{% raw %}timed 'GIT_CRATES synchronization' sync_metadata{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Следующий общий вызов · строка 164" path=script revision=revision start=164 %}
+{% endcapture %}
+{% include integrity-lab.html lab="git-glob" previews=integrity_previews %}
+
+Каталог кеша в учебном примере выглядит так:
+
+```text
+cache/
+├── repository-<revision>.gh.tar.gz
+├── another-repository-<revision>.gh.tar.gz
+├── example-1.0.0.crate
+└── notes.txt
+```
+
+`"$work/cache/"` даёт буквальный префикс пути, а `*.gh.tar.gz` находится вне кавычек. Bash раскрывает шаблон **до запуска** `cp`. Каждое найденное имя становится отдельным аргументом, даже если внутри имени есть пробел. Последний аргумент — каталог `"$work/dist/"`. Выбираются все совпавшие имена в `cache/`, независимо от того, какие записи есть в JSON.
+
+При стандартных настройках Bash (`nullglob` и `failglob` выключены) шаблон без совпадений остаётся буквальным. В показанном случае `cp` не находит такой путь, возвращает ненулевой статус и останавливает сценарий. `-n` сохраняет существующий файл назначения без сверки его содержимого. В опыте с GNU coreutils 9.12 пропуск такого файла вернул 0. Код пропуска зависит от версии и реализации `cp`. Исходные файлы остаются в кеше. Ниже Portage получит копии из `dist/`.
+
+## 4.33. Читаем и сравниваем GIT_CRATES {#compare-git-crates}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}sync_metadata() {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/sync_zed_git_crates.py" --candidate "$candidate" --generated "$work/generated-zed.ebuild" --source "$source_dir" --cache "$work/cache" | tee -a "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Запуск Python и stdout в summary · строки 106–107" path=script revision=revision start=106 %}
+{% capture integrity_source %}{% raw %}def block(text: str) -> tuple[int, int, str]:
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if snapshot.GIT_CRATES_START.fullmatch(line.rstrip("\r\n"))]
+    if len(starts) != 1:
+        raise snapshot.CargoSnapshotError("Expected exactly one GIT_CRATES block.")
+    start = starts[0]
+    for end in range(start + 1, len(lines)):
+        if lines[end].strip() == ")":
+            return sum(map(len, lines[:start])), sum(map(len, lines[:end + 1])), "".join(lines[start:end + 1])
+    raise snapshot.CargoSnapshotError("Unterminated GIT_CRATES block."){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Поиск границ единственного блока · строки 23–32" path="scripts/sync_zed_git_crates.py" revision=revision start=23 %}
+{% capture integrity_source %}{% raw %}def parse_entries(generated: str) -> list[dict[str, str]]:
+    _, _, declaration = block(generated)
+    snapshot.parse_git_crates(declaration)
+    entries = []
+    archive_origins: dict[tuple[str, str], str] = {}
+    for line in declaration.splitlines()[1:-1]:
+        if not line.strip():
+            continue
+        match = ENTRY.fullmatch(line)
+        if not match:
+            raise snapshot.CargoSnapshotError("Malformed generated entry.")
+        name, value = match.groups()
+        repository, commit, unpack = value.split(";")
+        repo = REPO.fullmatch(repository)
+        if (not NAME.fullmatch(name) or not repo or not SHA.fullmatch(commit) or
+                repo.group(1) in ('.', '..') or repo.group(2) in ('.', '..')):
+            raise snapshot.CargoSnapshotError(f"Unsupported generated entry: {name!r}.")
+        repo_name = repo.group(2)
+        if repo_name.endswith('.git'):
+            raise snapshot.CargoSnapshotError(f"Unsupported repository spelling: {repository!r}.")
+        archive_key = (repo_name, commit)
+        if archive_key in archive_origins and archive_origins[archive_key] != repository:
+            raise snapshot.CargoSnapshotError(f"Conflicting Git archive names for {name!r}.")
+        archive_origins[archive_key] = repository
+        components = unpack.split('/')
+        if (not components or components[0] != f"{repo_name}-%commit%" or
+                any(not PART.fullmatch(p) or p in ('.', '..') for p in components[1:])):
+            raise snapshot.CargoSnapshotError(f"Unsafe unpack path for {name!r}: {unpack!r}.")
+        entries.append({'name': name, 'repository': repository, 'revision': commit, 'unpack_path': unpack})
+    return entries{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Ограничения сгенерированных записей · строки 35–64" path="scripts/sync_zed_git_crates.py" revision=revision start=35 %}
+{% capture integrity_source %}{% raw %}def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, snapshot.GitCrate]:
+    _, _, declaration = block(generated)
+    entries = parse_entries(declaration)
+    crates = snapshot.parse_git_crates(declaration)
+    errors = snapshot.compare_snapshots(snapshot.parse_lock(source / "Cargo.lock"), crates)
+    if errors:
+        raise snapshot.CargoSnapshotError("\n".join(errors))
+    for entry in entries:{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Разбор нового блока и проверка по lock · строки 75–82" path="scripts/sync_zed_git_crates.py" revision=revision start=75 %}
+{% capture integrity_source %}{% raw %}def parse_git_crates(ebuild_text: str) -> dict[str, GitCrate]:
+    """Read the simple associative-array form emitted by the ebuild."""
+    lines = ebuild_text.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if GIT_CRATES_START.fullmatch(line))
+    except StopIteration as error:
+        raise CargoSnapshotError("Missing declare -A GIT_CRATES block.") from error
+
+    crates: dict[str, GitCrate] = {}
+    for line in lines[start + 1 :]:
+        if line.strip() == ")":
+            if not crates:
+                raise CargoSnapshotError("GIT_CRATES block is empty.")
+            return crates
+        if not line.strip():
+            continue
+        match = GIT_CRATE_ENTRY.fullmatch(line)
+        if match is None:
+            raise CargoSnapshotError(f"Malformed GIT_CRATES entry: {line.strip()!r}.")
+        name, value = match.groups()
+        parts = value.split(";")
+        if len(parts) != 3 or not all(parts):
+            raise CargoSnapshotError(f"Malformed GIT_CRATES entry for {name!r}.")
+        repository, commit, _unpack_path = parts
+        if not COMMIT.fullmatch(commit):
+            raise CargoSnapshotError(f"Malformed GIT_CRATES commit for {name!r}: {commit!r}.")
+        if name in crates:
+            raise CargoSnapshotError(f"Duplicate GIT_CRATES entry for {name!r}.")
+        crates[name] = GitCrate(canonical_repository(repository), commit)
+    raise CargoSnapshotError("Unterminated GIT_CRATES block."){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Чтение ассоциативного массива как текста · строки 104–133" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=104 %}
+{% capture integrity_source %}{% raw %}def parse_lock(path: Path) -> dict[str, GitCrate]:
+    try:
+        with path.open("rb") as lock_file:
+            lock = tomllib.load(lock_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise CargoSnapshotError(f"Could not parse {path}.") from error
+
+    packages = lock.get("package")
+    if not isinstance(packages, list):
+        raise CargoSnapshotError("Cargo.lock has no package list.")
+    crates: dict[str, GitCrate] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            raise CargoSnapshotError("Cargo.lock has a malformed package entry.")
+        source = package.get("source")
+        if source is None:
+            continue
+        name = package.get("name")
+        if not isinstance(name, str) or not isinstance(source, str):
+            raise CargoSnapshotError("Cargo.lock has a malformed package source.")
+        if not source.startswith("git+"):
+            continue
+        repository_and_query, separator, commit = source[4:].partition("#")
+        if not separator or not COMMIT.fullmatch(commit):
+            raise CargoSnapshotError(f"Malformed Git source for {name!r}: {source!r}.")
+        repository = repository_and_query.split("?", 1)[0]
+        crate = GitCrate(canonical_repository(repository), commit)
+        existing = crates.get(name)
+        if existing is not None and existing != crate:
+            raise CargoSnapshotError(f"Cargo.lock has conflicting Git sources for {name!r}.")
+        crates[name] = crate
+    return crates{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Git-записи из Cargo.lock · строки 136–167" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=136 %}
+{% capture integrity_source %}{% raw %}def compare_snapshots(upstream: dict[str, GitCrate], ebuild: dict[str, GitCrate]) -> list[str]:
+    errors: list[str] = []
+    # Сверяем по имени crate, чтобы отдельно показать добавление или удаление
+    # зависимости, а также несовпадение URL репозитория или commit.
+    for name in sorted(upstream.keys() - ebuild.keys()):
+        errors.append(f"{name}: upstream Git dependency is missing from GIT_CRATES.")
+    for name in sorted(ebuild.keys() - upstream.keys()):
+        errors.append(f"{name}: GIT_CRATES entry is absent from upstream Cargo.lock.")
+    for name in sorted(upstream.keys() & ebuild.keys()):
+        upstream_crate = upstream[name]
+        ebuild_crate = ebuild[name]
+        if upstream_crate.repository != ebuild_crate.repository:
+            errors.append(
+                f"{name}: repository differs (upstream {upstream_crate.repository}, "
+                f"ebuild {ebuild_crate.repository})."
+            )
+        if upstream_crate.commit != ebuild_crate.commit:
+            errors.append(
+                f"{name}: revision differs (upstream {upstream_crate.commit}, "
+                f"ebuild {ebuild_crate.commit})."
+            )
+    return errors{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Сверка двух снимков · строки 261–282" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=261 %}
+{% endcapture %}
+{% include integrity-lab.html lab="git-compare" previews=integrity_previews %}
+
+`--candidate` указывает на сопровождаемый ebuild, который готовится к проверке. `--generated` указывает на файл, полученный от генератора или восстановленный из metadata при reuse. `--source` даёт путь к извлечённым upstream-исходникам, а `--cache` — к Git-архивам. Python пишет итоговые строки в stdout, который `tee -a` выводит в журнал и дописывает в summary. Ошибки Python идут в stderr. Применяются [те же правила конвейера и pipefail]({{ previous }}#streams).
+
+Пример ниже вымышленный:
+
+```bash
+declare -A GIT_CRATES=(
+    [example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'
+)
+```
+
+В ассоциативном массиве `declare -A` ключ `example` обозначает имя crate. Строка содержит три поля, разделённые точками с запятой: URL репозитория, Git-ревизию и путь после распаковки. `%commit%` в пути подставляется позднее. Python читает эту простую форму как текст, без `source` и исполнения ebuild.
+
+`block` требует один заголовок декларации и ищет закрывающую строку `)`. `parse_git_crates` читает записи по имени и отвергает дубликаты. `parse_entries` дополнительно ограничивает форму сгенерированных имён, URL, полного 40-символьного SHA и пути. Корень пути имеет вид `repository-%commit%`, а компоненты `.` и `..` запрещены. `parse_lock` берёт из TOML только источники `git+`, отделяет ревизию после `#` и убирает query. Канонизация URL нормализует регистр схемы и хоста, завершающий слеш и суффикс `.git`.
+
+`compare_snapshots` сверяет по имени crate отсутствующие, лишние и общие записи. Для общих записей сверяются канонический URL и ревизия. На этом шаге с lock сверяется **generated**. Устаревший блок кандидата ожидаем при обновлении. Его можно заменить, если новый снимок проходит проверки. Если отстаёт уже generated, синхронизация останавливается. Зависимости Cargo заново не разрешаются, граф features здесь не строится. При расхождении в generated диагностика содержит обе стороны, например `example: repository differs (upstream https://github.com/example/renamed, ebuild https://github.com/example/repository).` Для ревизии применяется формат `revision differs (upstream …, ebuild …)`.
+
+## 4.34. Проверяем Git archives и Cargo.toml {#validate-git-archives}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, snapshot.GitCrate]:
+    _, _, declaration = block(generated)
+    entries = parse_entries(declaration)
+    crates = snapshot.parse_git_crates(declaration)
+    errors = snapshot.compare_snapshots(snapshot.parse_lock(source / "Cargo.lock"), crates)
+    if errors:
+        raise snapshot.CargoSnapshotError("\n".join(errors))
+    for entry in entries:
+        name, repository, commit, unpack = (entry[k] for k in ('name', 'repository', 'revision', 'unpack_path'))
+        repo_name = repository.rsplit('/', 1)[1]
+        archive = cache / f"{repo_name}-{commit}.gh.tar.gz"
+        member_name = str(PurePosixPath(unpack.replace('%commit%', commit)) / 'Cargo.toml')
+        try:
+            with tarfile.open(archive, 'r:gz') as tar:
+                matches = [m for m in tar if m.name == member_name]
+                if len(matches) != 1 or not matches[0].isfile() or matches[0].size > 2_000_000:
+                    raise snapshot.CargoSnapshotError(f"Invalid Cargo.toml for {name!r} in {archive.name}.")
+                f = tar.extractfile(matches[0])
+                assert f is not None
+                manifest = tomllib.loads(f.read().decode('utf-8'))
+                if manifest.get('package', {}).get('name') != name:
+                    raise snapshot.CargoSnapshotError(f"Crate identity mismatch for {name!r}.")
+        except (OSError, tarfile.TarError, UnicodeError, tomllib.TOMLDecodeError) as error:
+            raise snapshot.CargoSnapshotError(f"Cannot validate source for {name!r}: {error}") from error
+    return crates{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Проверки Git-снимка и Cargo.toml в кеше · строки 75–99" path="scripts/sync_zed_git_crates.py" revision=revision start=75 %}
+{% endcapture %}
+{% include integrity-lab.html lab="git-member" previews=integrity_previews %}
+
+Для каждой записи `validate_sources` берёт последний компонент URL и добавляет ревизию, получая имя кеша `repository-<revision>.gh.tar.gz`. Затем заменяет `%commit%` в пути распаковки и добавляет `Cargo.toml`. Среди элементов tar должно быть ровно одно совпадение с этим именем. Оно должно быть обычным файлом размером не больше 2 000 000 байт.
+
+Далее Python читает этот элемент, декодирует UTF-8, разбирает TOML и сверяет `package.name` с ключом из `GIT_CRATES`. Лаборатория продолжает пример с crate `example`. Формат системной части сообщения об отсутствующем архиве зависит от переданного пути и окружения. Формат диагностики TOML может зависеть от версии Python. Проверка устанавливает согласованность ожидаемого манифеста с записью crate. Полнота прочих элементов и соответствие всего архива дереву указанного Git-коммита здесь не проверяются.
+
+## 4.35. Обновляем блок GIT_CRATES в кандидате {#replace-git-block}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}def sync(candidate: Path, generated: Path, source: Path, cache: Path) -> int:
+    generated_text = snapshot.read_text(generated)
+    crates = validate_sources(generated_text, source, cache)
+    original = snapshot.read_text(candidate)
+    start, end, _ = block(original)
+    _, _, replacement = block(generated_text)
+    updated = original[:start] + replacement + original[end:]
+    # All validation happens before writing. Offline substitutions remain curated.
+    snapshot.parse_offline_substitutions(updated, crates)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=candidate.parent, delete=False) as f:
+            tmp = Path(f.name)
+            f.write(updated)
+        snapshot.validate(tmp, source)
+        os.chmod(tmp, candidate.stat().st_mode & 0o777)
+        tmp.replace(candidate)
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
+    return len(crates){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Сборка, валидация и замена кандидата · строки 102–122" path="scripts/sync_zed_git_crates.py" revision=revision start=102 %}
+{% capture integrity_source %}{% raw %}def block(text: str) -> tuple[int, int, str]:
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if snapshot.GIT_CRATES_START.fullmatch(line.rstrip("\r\n"))]
+    if len(starts) != 1:
+        raise snapshot.CargoSnapshotError("Expected exactly one GIT_CRATES block.")
+    start = starts[0]
+    for end in range(start + 1, len(lines)):
+        if lines[end].strip() == ")":
+            return sum(map(len, lines[:start])), sum(map(len, lines[:end + 1])), "".join(lines[start:end + 1])
+    raise snapshot.CargoSnapshotError("Unterminated GIT_CRATES block."){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Диагностика границ блока · строки 23–32" path="scripts/sync_zed_git_crates.py" revision=revision start=23 %}
+{% endcapture %}
+{% include integrity-lab.html lab="candidate-replace" previews=integrity_previews %}
+
+<figure class="figure lesson-figure">
+  <figcaption>Как новый блок попадает в сопровождаемый ebuild · условные фрагменты</figcaption>
+  <div class="integrity-panels integrity-candidate">
+    <div class="workspace">
+      <strong>Существующий candidate</strong>
+      <pre>Заголовок · EAPI · сведения о пакете
+<mark>declare -A GIT_CRATES=(… прежние записи …)</mark>
+Зависимости · Wayland patch · LICENSE · SRC_URI
+Функции подготовки и сборки</pre>
+    </div>
+    <div class="workspace">
+      <strong>generated-zed.ebuild</strong>
+      <pre><mark>declare -A GIT_CRATES=(… новые записи …)</mark>
+Сгенерированные сведения о лицензиях</pre>
+    </div>
+    <p class="crates-edge crates-converge">↓ Префикс и суффикс из кандидата + блок из generated ↓</p>
+    <div class="workspace integrity-output">
+      <strong>Подготовленный текст кандидата</strong>
+      <pre>Заголовок · EAPI · сведения о пакете
+<mark>declare -A GIT_CRATES=(… новые записи …)</mark>
+Зависимости · Wayland patch · LICENSE · SRC_URI
+Функции подготовки и сборки</pre>
+    </div>
+  </div>
+</figure>
+
+`sync` читает и проверяет generated, затем находит границы декларации в обоих текстах. Из кандидата берутся префикс и суффикс, между ними вставляется только новый блок. Полученный текст сначала проверяется на совместимость с ручными offline substitutions.
+
+Временный файл создаётся рядом с кандидатом, в `candidate.parent`. В него записывается текст UTF-8, после чего `snapshot.validate` проверяет временный ebuild по upstream. Строка с `chmod` копирует обычные биты доступа через маску `0o777`. Содержимое кандидата меняется на `tmp.replace(candidate)`. При отказе проверки до этой строки исходный текст в контролируемом сценарии сохраняется. `finally` удаляет временный файл, если он остался. В успешном сценарии временное имя исчезает при переименовании.
+
+Эта операция относится к одному файлу и одному моменту замены. Сохранение всех атрибутов, исходного байтового представления переводов строк и устойчивость к аварийному отключению здесь не гарантируются. Последующие запись сводки и правка `SRC_URI` выполняются отдельно.
+
+## 4.36. Сохраняем offline substitutions и WebRTC pin {#curated-offline-substitutions}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}	git_crate_commit() {
+		local crate="$1"
+		local output_variable="$2"
+		local value="${GIT_CRATES[${crate}]}"
+		local repository remainder commit unpack_path
+
+		[[ -n "${crate}" && -n "${output_variable}" && -n "${value}" ]] \
+			|| die "Missing GIT_CRATES entry for ${crate}"
+		repository="${value%%;*}"
+		remainder="${value#*;}"
+		commit="${remainder%%;*}"
+		unpack_path="${remainder#*;}"
+		[[ -n "${repository}" && "${remainder}" != "${value}" \
+			&& -n "${commit}" && "${unpack_path}" != "${remainder}" \
+			&& -n "${unpack_path}" && "${unpack_path}" != *";"* \
+			&& "${commit}" =~ ^[0-9a-f]{7,64}$ ]] \
+			|| die "Malformed GIT_CRATES entry for ${crate}"
+		printf -v "${output_variable}" '%s' "${commit}"
+	}
+
+	local ASYNC_PROCESS_COMMIT
+	git_crate_commit async-process ASYNC_PROCESS_COMMIT
+	local ASYNC_PROCESS_GIT="async-process = { git = \"https://github.com/zed-industries/async-process.git\", rev = \"${ASYNC_PROCESS_COMMIT}\""
+	local ASYNC_PROCESS_PATH="async-process = { path = \"${WORKDIR}/async-process-${ASYNC_PROCESS_COMMIT}\""{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Реальный пример git_crate_commit в ebuild Zed 1.29.2 · строки 207–230" path="app-editors/zed/zed-1.29.2.ebuild" revision="e3523562379eaf24e05e73107d5f18fdacdcede7" start=207 %}
+{% capture integrity_source %}{% raw %}    updated = original[:start] + replacement + original[end:]
+    # All validation happens before writing. Offline substitutions remain curated.
+    snapshot.parse_offline_substitutions(updated, crates)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=candidate.parent, delete=False) as f:
+            tmp = Path(f.name)
+            f.write(updated)
+        snapshot.validate(tmp, source)
+        os.chmod(tmp, candidate.stat().st_mode & 0o777)
+        tmp.replace(candidate){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Два места проверки до замены ebuild · строки 108–118" path="scripts/sync_zed_git_crates.py" revision=revision start=108 %}
+{% capture integrity_source %}{% raw %}def parse_offline_substitutions(
+    ebuild_text: str, git_crates: dict[str, GitCrate]
+) -> list[OfflineSubstitution]:
+    """Validate the existing explicit local Cargo replacement convention."""
+    variables: dict[str, str] = {}
+    # Ebuild не выполняем: читаем только известную форму local assignments,
+    # чтобы проверить pins без запуска команд из файла.
+    for line in ebuild_text.splitlines():
+        match = LOCAL_ASSIGNMENT.fullmatch(line)
+        if match is not None:
+            name, value = match.groups()
+            if name in variables:
+                raise CargoSnapshotError(f"Duplicate local variable {name!r}.")
+            variables[name] = value
+
+    for line in ebuild_text.splitlines():
+        match = GIT_CRATE_COMMIT_ASSIGNMENT.fullmatch(line)
+        if match is None:
+            continue
+        crate, name = match.groups()
+        try:
+            variables[name] = git_crates[crate].commit
+        except KeyError as error:
+            raise CargoSnapshotError(
+                f"Offline commit {name!r} references missing GIT_CRATES entry {crate!r}."
+            ) from error{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Чтение локальных присваиваний и commit variables · строки 195–220" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=195 %}
+{% capture integrity_source %}{% raw %}    substitutions: list[OfflineSubstitution] = []
+    for name, raw_declaration in variables.items():
+        if not name.endswith("_GIT"):
+            continue
+        stem = name.removesuffix("_GIT")
+        declaration = expand_variables(raw_declaration, variables, name)
+        match = GIT_DECLARATION.fullmatch(declaration)
+        if match is None:
+            raise CargoSnapshotError(f"Malformed offline Git declaration {name!r}.")
+        crate, repository, declared_commit = match.groups()
+        commit_variables = VARIABLE.findall(raw_declaration)
+        if not commit_variables:
+            commit_variable = f"{stem}_COMMIT"
+        elif len(commit_variables) == 1 and commit_variables[0].endswith("_COMMIT"):
+            commit_variable = commit_variables[0]
+        else:
+            raise CargoSnapshotError(f"Offline Git declaration {name!r} has no single commit variable.")
+        commit = variables.get(commit_variable)
+        if commit is None or not COMMIT.fullmatch(commit):
+            raise CargoSnapshotError(f"Malformed offline commit for {name!r}.")
+        if declared_commit is not None and declared_commit != commit:
+            raise CargoSnapshotError(f"Offline Git declaration {name!r} disagrees with its commit variable.")
+
+        path_variable = f"{stem}_PATH"
+        try:
+            path_declaration = expand_variables(
+                variables[path_variable], variables, path_variable, allow_external=True
+            )
+        except KeyError as error:
+            raise CargoSnapshotError(f"Missing offline path declaration {path_variable!r}.") from error
+        path_match = PATH_DECLARATION.fullmatch(path_declaration)
+        if path_match is None or path_match.group(1) != crate or commit not in path_match.group(2):
+            raise CargoSnapshotError(f"Malformed offline path declaration {path_variable!r}.")
+        substitutions.append(
+            OfflineSubstitution(crate, canonical_repository(repository), commit, declaration)
+        )
+    return substitutions{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Формы Git- и path-деклараций · строки 222–258" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=222 %}
+{% capture integrity_source %}{% raw %}def parse_webrtc_commit(ebuild_text: str) -> str:
+    """Read the single explicit WebRTC prebuilt pin from the ebuild."""
+    assignments = [
+        line for line in ebuild_text.splitlines() if re.match(r"^\s*WEBRTC_COMMIT\s*=", line)
+    ]
+    if not assignments:
+        raise CargoSnapshotError("Missing WEBRTC_COMMIT assignment.")
+    if len(assignments) != 1:
+        raise CargoSnapshotError("WEBRTC_COMMIT is defined more than once.")
+    match = WEBRTC_COMMIT_ASSIGNMENT.fullmatch(assignments[0])
+    if match is None or not WEBRTC_COMMIT_VALUE.fullmatch(match.group(1)):
+        raise CargoSnapshotError("Malformed WEBRTC_COMMIT assignment.")
+    return match.group(1)
+
+
+def parse_upstream_webrtc_version(path: Path) -> str:
+    """Read the WebRTC prebuilt version from the exact upstream source tree."""
+    try:
+        with path.open("rb") as corgi_file:
+            corgi_toml = tomllib.load(corgi_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise CargoSnapshotError(f"Could not parse {path}.") from error
+    tools = corgi_toml.get("tools")
+    if not isinstance(tools, dict):
+        raise CargoSnapshotError("corgi.toml has no tools table.")
+    webrtc_prebuilt = tools.get("webrtc-prebuilt")
+    if not isinstance(webrtc_prebuilt, dict):
+        raise CargoSnapshotError("corgi.toml has no tools.webrtc-prebuilt table.")
+    version = webrtc_prebuilt.get("version")
+    if not isinstance(version, str) or not version:
+        raise CargoSnapshotError("corgi.toml has no non-empty tools.webrtc-prebuilt.version.")
+    return version{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Чтение WebRTC pin из двух файлов · строки 57–88" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=57 %}
+{% capture integrity_source %}{% raw %}def validate(ebuild_path: Path, source_path: Path) -> None:
+    """Validate a candidate ebuild against one exact extracted upstream source tree."""
+    ebuild_text = read_text(ebuild_path)
+    webrtc_commit = parse_webrtc_commit(ebuild_text)
+    upstream_webrtc_version = parse_upstream_webrtc_version(source_path / "corgi.toml")
+    lock_crates = parse_lock(source_path / "Cargo.lock")
+    ebuild_crates = parse_git_crates(ebuild_text)
+    errors = compare_snapshots(lock_crates, ebuild_crates)
+    if webrtc_commit != upstream_webrtc_version:
+        errors.append(
+            "WEBRTC_COMMIT differs from upstream corgi.toml\n"
+            f"ebuild: {webrtc_commit}\n"
+            f"upstream: {upstream_webrtc_version}"
+        )
+
+    cargo_toml_path = source_path / "Cargo.toml"
+    validate_cargo_toml(cargo_toml_path)
+    cargo_toml = read_text(cargo_toml_path)
+    for substitution in parse_offline_substitutions(ebuild_text, ebuild_crates):
+        if substitution.declaration not in cargo_toml:
+            errors.append(
+                f"{substitution.crate}: expected offline Git declaration is absent from upstream Cargo.toml."
+            )
+    if errors:
+        raise CargoSnapshotError("\n".join(errors)){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Проверка временного кандидата · строки 285–309" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=285 %}
+{% endcapture %}
+{% include integrity-lab.html lab="offline-boundary" previews=integrity_previews %}
+
+Ebuild использует `git_crate_commit crate VARIABLE`, чтобы взять ревизию из записи массива и присвоить её переменной. В Python та же поддерживаемая строка читается регулярным выражением. Для подходящих `local NAME="…"` собираются значения, повторные имена отвергаются. При обработке `git_crate_commit` переменная получает ревизию crate из нового снимка и возникает ошибка, если записи уже нет.
+
+Для каждой переменной `*_GIT` раскрываются известные переменные и проверяется форма Git-декларации. Без ссылки на переменную в строке используется `<stem>_COMMIT`. Иначе допустима одна ссылка с именем на `_COMMIT`. Ревизия должна подходить под формат, а явный `rev` должен с ней совпасть. Парная `<stem>_PATH` должна существовать, иметь поддерживаемую форму, указывать то же имя crate и содержать ревизию в пути. Внешние переменные вроде `${WORKDIR}` в path-декларации могут остаться нераскрытыми.
+
+На временном файле `validate` повторно сверяет Git-снимок с `Cargo.lock`, читает один корректно оформленный `WEBRTC_COMMIT` и сравнивает его с `tools.webrtc-prebuilt.version` из `corgi.toml`. Корневой `Cargo.toml` должен разбираться как TOML. Затем проверяется присутствие ожидаемой Git-декларации как **подстроки** в его тексте. Эти правила рассчитаны на конкретные формы ebuild. Они не разбирают произвольный Bash, не проверяют все отношения между зависимостями и не запускают offline-сборку Cargo.
+
+Автоматически обновляется `GIT_CRATES`. Offline substitutions и `WEBRTC_COMMIT` сопровождает владелец ebuild, а синхронизация проверяет их совместимость. Wayland-only patch и `LICENSE` остаются частью ручной упаковки.
+
+## 4.37. Сравниваем лицензионные термины {#license-term-differences}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}def license_terms(text: str) -> set[str]:
+    terms: set[str] = set()
+    for match in re.finditer(r'^LICENSE\+?="([^"]*)"', text, re.MULTILINE):
+        terms.update(match.group(1).split())
+    return terms{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Извлечение терминов LICENSE · строки 125–129" path="scripts/sync_zed_git_crates.py" revision=revision start=125 %}
+{% capture integrity_source %}{% raw %}def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--candidate', required=True, type=Path)
+    parser.add_argument('--generated', required=True, type=Path)
+    parser.add_argument('--source', required=True, type=Path)
+    parser.add_argument('--cache', required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        candidate_terms = license_terms(snapshot.read_text(args.candidate))
+        generated_terms = license_terms(snapshot.read_text(args.generated))
+        count = sync(args.candidate, args.generated, args.source, args.cache)
+        print(f'Git dependency count: {count}')
+        print('Generated-only licenses for review: ' + json.dumps(sorted(generated_terms - candidate_terms)))
+        print('Candidate-only licenses for review: ' + json.dumps(sorted(candidate_terms - generated_terms)))
+    except (OSError, ValueError, snapshot.CargoSnapshotError) as error:
+        print(f'Git synchronization failed: {error}', file=sys.stderr)
+        return 1
+    return 0{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Чтение, синхронизация и отчёт · строки 132–149" path="scripts/sync_zed_git_crates.py" revision=revision start=132 %}
+{% capture integrity_source %}{% raw %}  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/sync_zed_git_crates.py" --candidate "$candidate" --generated "$work/generated-zed.ebuild" --source "$source_dir" --cache "$work/cache" | tee -a "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Отчёт Python и tee · строка 107" path=script revision=revision start=107 %}
+{% endcapture %}
+{% include integrity-lab.html lab="license-sets" previews=integrity_previews %}
+
+CLI читает оба текста до вызова `sync`. `license_terms` находит регулярным выражением поддерживаемые присваивания `LICENSE="…"` и `LICENSE+="…"`, разбивает захваченные значения по пробельным символам и собирает множества. После успешной синхронизации печатается число Git-зависимостей и обе разности. Каждая разность сортируется и сериализуется в JSON, поэтому порядок отчёта устойчив.
+
+Это анализ текстовых терминов. Он не охватывает все варианты многострочных и динамически построенных присваиваний и не проверяет семантическую эквивалентность Gentoo LICENSE-выражений. В [фазе 4.2](#distribution-metadata) `license_expressions` сохраняет нормализованные выражения целиком для JSON. Здесь разности служат подсказкой сопровождающему. Они сами по себе не делают запуск неуспешным и не заменяют `LICENSE` кандидата.
+
+## 4.38. Обновляем SRC_URI {#migrate-crates-uri}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" rewrite-uri "$candidate"
+}{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Команда rewrite-uri · строки 108–109" path=script revision=revision start=108 %}
+{% capture integrity_source %}{% raw %}LEGACY_URI = 'https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz'
+OVERLAY_URI = 'https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz'
+SOURCE_URI = 'https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz'{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Точные текстовые формы URI · строки 21–23" path="scripts/crates_distribution.py" revision=revision start=21 %}
+{% capture integrity_source %}{% raw %}def validate_uri(text: str, *, allow_legacy: bool) -> None:
+    assignments = re.findall(r'^\s*SRC_URI\s*\+?=', text, re.MULTILINE)
+    blocks = re.findall(r'^SRC_URI="([^\"]*)"', text, re.MULTILINE)
+    if len(assignments) != 1 or len(blocks) != 1:
+        raise ValueError('Expected exactly one simple SRC_URI assignment')
+    lines = [line.strip() for line in blocks[0].splitlines()]
+    if lines.count(SOURCE_URI) != 1:
+        raise ValueError('Upstream source SRC_URI mismatch')
+    legacy, migrated = text.count(LEGACY_URI), text.count(OVERLAY_URI)
+    allowed = ((1, 0), (0, 1)) if allow_legacy else ((0, 1),)
+    if (legacy, migrated) not in allowed:
+        raise ValueError('Unexpected candidate crates SRC_URI')
+    expected = LEGACY_URI if legacy else OVERLAY_URI
+    if lines.count(expected) != 1:
+        raise ValueError('Candidate crates URL is not an SRC_URI entry'){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Проверки поддерживаемого SRC_URI · строки 138–152" path="scripts/crates_distribution.py" revision=revision start=138 %}
+{% capture integrity_source %}{% raw %}def rewrite_uri(candidate: Path) -> None:
+    text = candidate.read_text(encoding='utf-8')
+    validate_uri(text, allow_legacy=True)
+    updated = text.replace(LEGACY_URI, OVERLAY_URI)
+    if 'gentoo-crate-dist/zed' in updated:
+        raise ValueError('Unexpected legacy crates source')
+    validate_uri(updated, allow_legacy=False)
+    candidate.write_text(updated, encoding='utf-8'){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Порядок переписывания · строки 155–162" path="scripts/crates_distribution.py" revision=revision start=155 %}
+{% capture integrity_source %}{% raw %}    rewrite = sub.add_parser('rewrite-uri')
+    rewrite.add_argument('candidate', type=Path){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Аргумент CLI rewrite-uri · строки 216–217" path="scripts/crates_distribution.py" revision=revision start=216 %}
+{% capture integrity_source %}{% raw %}        elif args.action == 'rewrite-uri':
+            rewrite_uri(args.candidate){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Вызов rewrite_uri · строки 233–234" path="scripts/crates_distribution.py" revision=revision start=233 %}
+{% capture integrity_source %}{% raw %}    except (OSError, ValueError, KeyError, json.JSONDecodeError, snapshot.CargoSnapshotError, release_handoff.HandoffError) as error:
+        print(f'Distribution validation failed: {error}', file=sys.stderr)
+        return 1
+    print(f'Distribution {args.action}: OK')
+    return 0{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Результат CLI · строки 240–244" path="scripts/crates_distribution.py" revision=revision start=240 %}
+{% endcapture %}
+{% include integrity-lab.html lab="uri-migrate" previews=integrity_previews %}
+
+В исходнике выше `LEGACY_URI` указывает на registry crates из прежнего хранилища gentoo-crate-dist, `OVERLAY_URI` — на registry crates из релиза оверлея. `SOURCE_URI` указывает на архив исходников самого Zed и задаёт его имя после `->`. Он должен остаться в блоке. В [разделе 4.10](#download) уже показано, почему запись содержит буквальные `${PV/_/-}` и `${P}`. На этом шаге Python сравнивает строки, а раскрытие переменных и оценка ebuild относятся к Portage.
+
+После чтения UTF-8 текста валидатор требует одно распознаваемое присваивание и один простой блок `SRC_URI="…"` с точной строкой upstream-архива. Он считает вхождения обеих crates-строк во всём тексте. Допустима одна legacy-строка или одна overlay-строка, причём нужный URI должен быть отдельной строкой внутри блока. После замены в памяти проверяется отсутствие оставшихся `gentoo-crate-dist/zed` и повторно проверяется структура с разрешённым только overlay URI. Лишь затем вызывается `write_text`.
+
+С валидным уже мигрированным URI команда также вызывает `write_text`, записывая тот же текст. Успех печатает `Distribution rewrite-uri: OK`. Проверка касается формы поддерживаемого простого присваивания, а наличие удалённого asset не проверяется. При generation архив может пока существовать только локально.
+
+Здесь используется прямая запись. Если проверка URI останавливается с ошибкой, уже завершённая замена блока `GIT_CRATES` остаётся в кандидате.
+
+## 4.39. Завершаем синхронизацию метаданных {#metadata-synchronization-flow}
+
+{% capture integrity_previews %}
+{% capture integrity_source %}{% raw %}timed 'Metadata and source integrity validation' verify_inputs
+timed 'GIT_CRATES synchronization' sync_metadata
+timed 'Candidate validation' validate_candidate{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Граница общей проверки, синхронизации и следующего этапа · строки 163–165" path=script revision=revision start=163 %}
+{% capture integrity_source %}{% raw %}verify_inputs() {
+  test "$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)" = "$lock_hash"
+  mkdir "$work/source-verify"
+  tar -xzf "$source_archive" -C "$work/source-verify"
+  diff -qr --no-dereference "$source_dir" "$work/source-verify/zed-${version}"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" identity \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --lock "$source_dir/Cargo.lock" --archive "$archive" --metadata "$metadata"
+  cp -n "$work/cache/"*.gh.tar.gz "$work/dist/"
+}
+
+sync_metadata() {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/sync_zed_git_crates.py" --candidate "$candidate" --generated "$work/generated-zed.ebuild" --source "$source_dir" --cache "$work/cache" | tee -a "$GITHUB_STEP_SUMMARY"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" rewrite-uri "$candidate"
+}{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Общие функции · строки 95–109" path=script revision=revision start=95 %}
+{% capture integrity_source %}{% raw %}def validate_sources(generated: str, source: Path, cache: Path) -> dict[str, snapshot.GitCrate]:
+    _, _, declaration = block(generated)
+    entries = parse_entries(declaration)
+    crates = snapshot.parse_git_crates(declaration)
+    errors = snapshot.compare_snapshots(snapshot.parse_lock(source / "Cargo.lock"), crates)
+    if errors:
+        raise snapshot.CargoSnapshotError("\n".join(errors))
+    for entry in entries:{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Сверка сгенерированного Git-снимка · строки 75–82" path="scripts/sync_zed_git_crates.py" revision=revision start=75 %}
+{% capture integrity_source %}{% raw %}def sync(candidate: Path, generated: Path, source: Path, cache: Path) -> int:
+    generated_text = snapshot.read_text(generated)
+    crates = validate_sources(generated_text, source, cache)
+    original = snapshot.read_text(candidate)
+    start, end, _ = block(original)
+    _, _, replacement = block(generated_text)
+    updated = original[:start] + replacement + original[end:]
+    # All validation happens before writing. Offline substitutions remain curated.
+    snapshot.parse_offline_substitutions(updated, crates)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=candidate.parent, delete=False) as f:
+            tmp = Path(f.name)
+            f.write(updated)
+        snapshot.validate(tmp, source)
+        os.chmod(tmp, candidate.stat().st_mode & 0o777)
+        tmp.replace(candidate)
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
+    return len(crates){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Состояние кандидата при замене · строки 102–122" path="scripts/sync_zed_git_crates.py" revision=revision start=102 %}
+{% capture integrity_source %}{% raw %}        candidate_terms = license_terms(snapshot.read_text(args.candidate))
+        generated_terms = license_terms(snapshot.read_text(args.generated))
+        count = sync(args.candidate, args.generated, args.source, args.cache)
+        print(f'Git dependency count: {count}')
+        print('Generated-only licenses for review: ' + json.dumps(sorted(generated_terms - candidate_terms)))
+        print('Candidate-only licenses for review: ' + json.dumps(sorted(candidate_terms - generated_terms)))
+    except (OSError, ValueError, snapshot.CargoSnapshotError) as error:
+        print(f'Git synchronization failed: {error}', file=sys.stderr)
+        return 1
+    return 0{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Отчёт после замены · строки 140–149" path="scripts/sync_zed_git_crates.py" revision=revision start=140 %}
+{% capture integrity_source %}{% raw %}def validate_uri(text: str, *, allow_legacy: bool) -> None:
+    assignments = re.findall(r'^\s*SRC_URI\s*\+?=', text, re.MULTILINE)
+    blocks = re.findall(r'^SRC_URI="([^\"]*)"', text, re.MULTILINE)
+    if len(assignments) != 1 or len(blocks) != 1:
+        raise ValueError('Expected exactly one simple SRC_URI assignment')
+    lines = [line.strip() for line in blocks[0].splitlines()]
+    if lines.count(SOURCE_URI) != 1:
+        raise ValueError('Upstream source SRC_URI mismatch')
+    legacy, migrated = text.count(LEGACY_URI), text.count(OVERLAY_URI)
+    allowed = ((1, 0), (0, 1)) if allow_legacy else ((0, 1),)
+    if (legacy, migrated) not in allowed:
+        raise ValueError('Unexpected candidate crates SRC_URI')
+    expected = LEGACY_URI if legacy else OVERLAY_URI
+    if lines.count(expected) != 1:
+        raise ValueError('Candidate crates URL is not an SRC_URI entry')
+
+
+def rewrite_uri(candidate: Path) -> None:
+    text = candidate.read_text(encoding='utf-8')
+    validate_uri(text, allow_legacy=True)
+    updated = text.replace(LEGACY_URI, OVERLAY_URI)
+    if 'gentoo-crate-dist/zed' in updated:
+        raise ValueError('Unexpected legacy crates source')
+    validate_uri(updated, allow_legacy=False)
+    candidate.write_text(updated, encoding='utf-8'){% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Проверки и запись URI · строки 138–162" path="scripts/crates_distribution.py" revision=revision start=138 %}
+{% endcapture %}
+{% include integrity-lab.html lab="integrity-flow" previews=integrity_previews %}
+
+В этой лаборатории PASS означает завершённый шаг, FAIL — первый отказ, SKIP — шаг, до которого Bash не дошёл. Успешный `sync` может заменить блок кандидата до завершения `tee`. Например, если путь summary — каталог, `tee` выдаёт ошибку открытия, но продолжает читать поток и писать в stdout. Python может завершиться с 0, а весь конвейер с `pipefail` вернёт 1 из-за `tee`. При `errexit` команда `rewrite-uri` тогда пропускается. Так же отдельно может отказать сам `rewrite-uri`, уже после успешной записи сводки. Оба случая оставляют завершённое обновление `GIT_CRATES` на диске.
+
+В успешном состоянии у кандидата новый `GIT_CRATES` и overlay crates URI, ручная логика упаковки сохранена, копии Git-архивов доступны в `dist/`. Исходный Manifest ещё не перегенерирован. Строка 165 открывает следующий этап.
+
+{% capture integrity_source %}{% raw %}timed 'Candidate validation' validate_candidate{% endraw %}{% endcapture %}
+{% include source-preview.html source=integrity_source label="Следующая команда · строка 165" path=script revision=revision start=165 open=true %}

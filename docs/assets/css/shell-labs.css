@@ -472,3 +472,44 @@
   .crates-lab .shell-file-grid { grid-template-columns: minmax(0, 1fr); }
   [data-crates-mapping-edge], [data-crates-pipe] { justify-self: center; transform: none; }
 }
+
+.integrity-panels {
+  display: grid;
+  gap: .65rem;
+  margin-block: .75rem;
+}
+.integrity-panels > .workspace { min-width: 0; }
+.integrity-panels pre {
+  margin: .3rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.integrity-compare { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.integrity-flow > .workspace + .workspace::before {
+  content: "↓" / "";
+  display: block;
+  color: var(--accent);
+  font-size: .9rem;
+  line-height: 1;
+  margin-bottom: .35rem;
+}
+.integrity-output { border-color: var(--accent); }
+
+@media (max-width: 620px) {
+  .integrity-compare { grid-template-columns: minmax(0, 1fr); }
+}
+
+.integrity-candidate mark {
+  background: var(--accent-fill);
+  color: inherit;
+  box-shadow: inset 2px 0 var(--accent);
+  padding-inline: .3rem;
+}
+
+@media (min-width: 72.001rem) {
+  .page-nav-scroll {
+    max-height: 100vh;
+    overflow-y: auto;
+    padding-right: .5rem;
+  }
+}

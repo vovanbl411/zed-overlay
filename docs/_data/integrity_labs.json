@@ -1,0 +1,608 @@
+{
+  "lock-integrity": {
+    "title": "Два отпечатка Cargo.lock",
+    "layout": "compare",
+    "panels": ["Сохранённый SHA-256", "Текущий stdout подстановки", "Коды завершения", "Следующий локальный объект"],
+    "gates": ["Сравнение через test", "Переход к mkdir"],
+    "cases": [
+      {
+        "label": "Cargo.lock совпадает",
+        "result": "Сравнение прошло. Bash переходит к mkdir.",
+        "values": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sha256sum=0 · cut=0\nКонвейер с pipefail=0 · test=0", "Достижим mkdir source-verify"],
+        "lines": {"bash": [53, 96, 97]}
+      },
+      {
+        "label": "Cargo.lock изменился",
+        "result": "test вернул 1. Bash завершает проверку до mkdir.",
+        "values": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "sha256sum=0 · cut=0\nКонвейер с pipefail=0 · test=1", "source-verify ещё не создан"],
+        "lines": {"bash": [53, 96]},
+        "fail": 0
+      },
+      {
+        "label": "Cargo.lock отсутствует",
+        "result": "test вернул 1. Bash завершает проверку до mkdir.",
+        "values": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "∅ · пустой stdout", "sha256sum=1 · cut=0\nКонвейер с pipefail=1 · test=1", "source-verify ещё не создан"],
+        "lines": {"bash": [53, 96]},
+        "fail": 0
+      }
+    ]
+  },
+  "source-rebuild": {
+    "title": "Два дерева из одного локального архива",
+    "layout": "flow",
+    "panels": ["Файлы после acquisition и подготовки crates", "Отдельный каталог", "Повторная распаковка и состояние деревьев"],
+    "gates": ["Создание source-verify", "Распаковка tar", "Переход к diff"],
+    "cases": [
+      {
+        "label": "Вторая распаковка завершилась",
+        "result": "Рабочее и повторно распакованное деревья готовы к diff.",
+        "values": ["dist/zed-1.29.0.tar.gz\nsource/zed-1.29.0/ · рабочее дерево\ndist/ · registry-архив и JSON\ncache/ · Git-архивы\ngenerated-zed.ebuild", "mkdir → source-verify/", "source/zed-1.29.0/\nsource-verify/zed-1.29.0/"],
+        "lines": {"bash": [51, 52, 97, 98, 99]}
+      },
+      {
+        "label": "mkdir получил отказ в записи",
+        "result": "mkdir вернул ненулевой статус. tar и diff пропущены.",
+        "values": ["dist/zed-1.29.0.tar.gz\nsource/zed-1.29.0/ · рабочее дерево\ndist/ · registry-архив и JSON\ncache/ · Git-архивы\ngenerated-zed.ebuild", "mkdir: отказ в записи · нового каталога нет", "Доступно только рабочее дерево."],
+        "lines": {"bash": [97]},
+        "fail": 0
+      },
+      {
+        "label": "Локальный архив оборван",
+        "result": "tar завершился с ошибкой. Уже извлечённые файлы могут остаться.",
+        "values": ["dist/zed-1.29.0.tar.gz\nsource/zed-1.29.0/ · рабочее дерево\ndist/ · registry-архив и JSON\ncache/ · Git-архивы\ngenerated-zed.ebuild\nЛокальный архив в этом сценарии повреждён.", "source-verify/ создан", "source/zed-1.29.0/\nsource-verify/ · возможно частичное дерево"],
+        "lines": {"bash": [97, 98]},
+        "fail": 1
+      }
+    ]
+  },
+  "recursive-diff": {
+    "title": "Результат diff для двух деревьев",
+    "layout": "compare",
+    "panels": ["Ожидаемое · source-verify/zed-1.29.0/", "Фактическое · source/zed-1.29.0/", "Сообщение GNU diff · учебный пересказ", "Код завершения и следующий шаг"],
+    "gates": ["Сравнение деревьев", "Переход к identity"],
+    "cases": [
+      {
+        "label": "Деревья совпадают",
+        "result": "Bash переходит к identity.",
+        "values": ["├── Cargo.lock · уже проверен\n└── Cargo.toml: [workspace]", "├── Cargo.lock · уже проверен\n└── Cargo.toml: [workspace]", "Нет вывода", "0 · identity достижим"],
+        "lines": {"bash": [99, 100]}
+      },
+      {
+        "label": "Cargo.toml изменён",
+        "result": "diff вернул 1. identity пропущен.",
+        "values": ["├── Cargo.lock · уже проверен\n└── Cargo.toml: members = [\"example\"]", "├── Cargo.lock · уже проверен\n└── Cargo.toml: members = [\"example\", \"extra\"]", "Файлы Cargo.toml различаются", "1 · identity пропущен"],
+        "lines": {"bash": [99]},
+        "fail": 0
+      },
+      {
+        "label": "В рабочем дереве добавлен файл",
+        "result": "diff вернул 1. identity пропущен.",
+        "values": ["├── Cargo.lock · уже проверен\n└── extra.txt отсутствует", "├── Cargo.lock · уже проверен\n└── extra.txt → обычный файл", "extra.txt есть только в source", "1 · identity пропущен"],
+        "lines": {"bash": [99]},
+        "fail": 0
+      },
+      {
+        "label": "Файл пропал из рабочего дерева",
+        "result": "diff вернул 1. identity пропущен.",
+        "values": ["├── Cargo.lock · уже проверен\n└── notes.txt → обычный файл", "├── Cargo.lock · уже проверен\n└── notes.txt отсутствует", "notes.txt есть только в source-verify", "1 · identity пропущен"],
+        "lines": {"bash": [99]},
+        "fail": 0
+      },
+      {
+        "label": "Цель символьной ссылки иная",
+        "result": "diff вернул 1. identity пропущен.",
+        "values": ["├── Cargo.lock · уже проверен\n└── link → target-a", "├── Cargo.lock · уже проверен\n└── link → target-b", "Символьные ссылки link указывают на разные пути", "1 · identity пропущен"],
+        "lines": {"bash": [99]},
+        "fail": 0
+      },
+      {
+        "label": "Отличается только executable bit",
+        "result": "Bash переходит к identity.",
+        "values": ["├── Cargo.lock · уже проверен\n└── tool.sh · 0644 · одинаковое содержимое", "├── Cargo.lock · уже проверен\n└── tool.sh · 0755 · одинаковое содержимое", "Нет вывода", "0 · identity достижим"],
+        "lines": {"bash": [99, 100]}
+      },
+      {
+        "label": "Вход сравнения отсутствует",
+        "result": "diff вернул 2. identity пропущен.",
+        "values": ["Каталог сравнения отсутствует", "├── Cargo.lock · уже проверен\n└── Cargo.toml: [workspace]", "Нет такого файла или каталога", "2 · identity пропущен"],
+        "lines": {"bash": [99]},
+        "fail": 0
+      }
+    ]
+  },
+  "distribution-identity": {
+    "title": "Что сравнивает команда identity",
+    "layout": "flow",
+    "panels": ["Шесть аргументов identity · учебные значения", "Первый результат проверки"],
+    "gates": ["Прочитать JSON и проверить схему", "Имя, размер и SHA-256 crates-архива", "Upstream identity и Git-снимок"],
+    "cases": [
+      {
+        "label": "Все проверки проходят",
+        "result": "Distribution identity: OK",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Имя, размер, SHA-256, коммит и Git-снимок совпали.\n\nDistribution identity: OK"],
+        "lines": {"bash": [100, 101, 102], "dist": [97, 123, 128, 133, 230, 231, 232, 243]}
+      },
+      {
+        "label": "Неверная схема JSON",
+        "result": "Distribution validation failed: Unsupported metadata schema version",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "schema_version = 2\n\nDistribution validation failed: Unsupported metadata schema version"],
+        "lines": {"bash": [100, 101, 102], "dist": [57, 97, 230, 241]},
+        "fail": 0
+      },
+      {
+        "label": "Размер crates-архива отличается",
+        "result": "Distribution validation failed: Archive does not match metadata",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "JSON: 8192 байт → файл: 8193 байта. SHA-256 ещё не вычислен.\n\nDistribution validation failed: Archive does not match metadata"],
+        "lines": {"bash": [100, 101, 102], "dist": [123, 124, 231, 241]},
+        "fail": 1
+      },
+      {
+        "label": "SHA-256 crates-архива отличается",
+        "result": "Distribution validation failed: Archive does not match metadata",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Размер совпал. SHA-256: aa… в JSON, bb… у файла.\n\nDistribution validation failed: Archive does not match metadata"],
+        "lines": {"bash": [100, 101, 102], "dist": [123, 124, 231, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Upstream commit отличается",
+        "result": "Distribution validation failed: Upstream commit, source archive or Cargo.lock mismatch",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Ключ JSON upstream_commit: 33… → аргумент --commit: 22…. Проверки хешей и Git-снимка пропущены.\n\nDistribution validation failed: Upstream commit, source archive or Cargo.lock mismatch"],
+        "lines": {"bash": [100, 101, 102], "dist": [128, 130, 232, 241]},
+        "fail": 2
+      },
+      {
+        "label": "Другой SHA-256 исходников",
+        "result": "Distribution validation failed: Upstream commit, source archive or Cargo.lock mismatch",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Коммит совпал. source_sha256: aa… в JSON, bb… у файла. Хеш lock и Git-снимок пропущены.\n\nDistribution validation failed: Upstream commit, source archive or Cargo.lock mismatch"],
+        "lines": {"bash": [100, 101, 102], "dist": [128, 130, 232, 241]},
+        "fail": 2
+      },
+      {
+        "label": "SHA-256 Cargo.lock отличается",
+        "result": "Distribution validation failed: Upstream commit, source archive or Cargo.lock mismatch",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Коммит и хеш исходного архива совпали. Значение cargo_lock_sha256 в JSON отличается от хеша lock. Git-снимок пропущен.\n\nDistribution validation failed: Upstream commit, source archive or Cargo.lock mismatch"],
+        "lines": {"bash": [100, 101, 102], "dist": [129, 130, 232, 241]},
+        "fail": 2
+      },
+      {
+        "label": "Git-запись JSON иная",
+        "result": "Distribution validation failed: example: revision differs (upstream aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, ebuild bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb).",
+        "values": ["--version 1.29.0\n--commit 2222222222222222222222222222222222222222\n--source-archive dist/zed-1.29.0.tar.gz\n--lock source/zed-1.29.0/Cargo.lock\n--archive dist/zed-1.29.0-overlay-crates.tar.xz\n--metadata dist/zed-1.29.0-overlay-crates.json", "Коммит и оба хеша совпали. example из JSON указывает на bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.\n\nDistribution validation failed: example: revision differs (upstream aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, ebuild bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)."],
+        "lines": {"bash": [100, 101, 102], "dist": [131, 132, 133, 135, 232, 241], "snapshot": [277, 278, 279, 280]},
+        "fail": 2
+      }
+    ]
+  },
+  "git-glob": {
+    "title": "Из шаблона в аргументы cp",
+    "layout": "flow",
+    "panels": ["Выражение Bash", "Совпавшие имена в cache/", "Аргументы после раскрытия · по одному на строку", "Файлы назначения dist/ после cp"],
+    "gates": ["Подготовка аргументов", "Выполнение cp", "Переход к синхронизации"],
+    "cases": [
+      {
+        "label": "Два Git-архива",
+        "result": "Оба файла остались в cache/ и появились в dist/.",
+        "values": ["cp -n \"$work/cache/\"*.gh.tar.gz \"$work/dist/\"", "another-repository-<revision>.gh.tar.gz\nrepository-<revision>.gh.tar.gz", "argv[0] = cp\nargv[1] = -n\nargv[2] = /tmp/zed-independent/cache/another-repository-<revision>.gh.tar.gz\nargv[3] = /tmp/zed-independent/cache/repository-<revision>.gh.tar.gz\nargv[4] = /tmp/zed-independent/dist/", "another-repository-<revision>.gh.tar.gz\nrepository-<revision>.gh.tar.gz\nСтатус cp: 0"],
+        "lines": {"bash": [103, 104, 164]}
+      },
+      {
+        "label": "Один Git-архив",
+        "result": "Один исходный аргумент передан cp.",
+        "values": ["cp -n \"$work/cache/\"*.gh.tar.gz \"$work/dist/\"", "repository-<revision>.gh.tar.gz", "argv[0] = cp\nargv[1] = -n\nargv[2] = /tmp/zed-independent/cache/repository-<revision>.gh.tar.gz\nargv[3] = /tmp/zed-independent/dist/", "repository-<revision>.gh.tar.gz · скопирован\nСтатус cp: 0"],
+        "lines": {"bash": [103, 104, 164]}
+      },
+      {
+        "label": "Совпадений нет",
+        "result": "Bash передал буквальный *.gh.tar.gz. cp вернул 1.",
+        "values": ["cp -n \"$work/cache/\"*.gh.tar.gz \"$work/dist/\"", "∅", "argv[0] = cp\nargv[1] = -n\nargv[2] = /tmp/zed-independent/cache/*.gh.tar.gz\nargv[3] = /tmp/zed-independent/dist/", "новых файлов нет\nСтатус cp: 1"],
+        "lines": {"bash": [103]},
+        "fail": 1
+      },
+      {
+        "label": "Файл назначения уже существует",
+        "result": "В опыте с GNU coreutils 9.12 cp -n вернул 0 и сохранил содержимое назначения.",
+        "values": ["cp -n \"$work/cache/\"*.gh.tar.gz \"$work/dist/\"", "repository-<revision>.gh.tar.gz", "argv[0] = cp\nargv[1] = -n\nargv[2] = /tmp/zed-independent/cache/repository-<revision>.gh.tar.gz\nargv[3] = /tmp/zed-independent/dist/", "repository-<revision>.gh.tar.gz · прежнее содержимое\nСтатус cp: 0"],
+        "lines": {"bash": [103, 104, 164]}
+      },
+      {
+        "label": "Имя содержит пробелы",
+        "result": "Имя с пробелом занимает один элемент argv.",
+        "values": ["cp -n \"$work/cache/\"*.gh.tar.gz \"$work/dist/\"", "my repository-<revision>.gh.tar.gz", "argv[0] = cp\nargv[1] = -n\nargv[2] = /tmp/zed-independent/cache/my repository-<revision>.gh.tar.gz\nargv[3] = /tmp/zed-independent/dist/", "my repository-<revision>.gh.tar.gz · скопирован\nСтатус cp: 0"],
+        "lines": {"bash": [103, 104, 164]}
+      }
+    ]
+  },
+  "git-compare": {
+    "title": "Какой GIT_CRATES проходит сверку с Cargo.lock",
+    "layout": "compare",
+    "panels": ["Cargo.lock · выбранные поля записей", "Существующий кандидат · строки GIT_CRATES", "Новый generated-zed.ebuild · строки GIT_CRATES", "Результат сравнения"],
+    "gates": ["Прочитать сгенерированный блок", "Сверить с Cargo.lock", "Переход к проверке Git-архивов"],
+    "cases": [
+      {
+        "label": "Upstream добавил crate",
+        "result": "Сгенерированный снимок включает обе записи. Проверка кеша достижима.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"\nname = \"extra\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n[extra]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/extra'", "Сгенерированный снимок включает обе записи."],
+        "lines": {"sync": [79, 82], "snapshot": [265, 269], "bash": [107]}
+      },
+      {
+        "label": "Upstream удалил crate",
+        "result": "Сгенерированный снимок больше не содержит extra. Проверка кеша достижима.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n[extra]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/extra'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "Сгенерированный снимок больше не содержит extra."],
+        "lines": {"sync": [79, 82], "snapshot": [267, 269], "bash": [107]}
+      },
+      {
+        "label": "Upstream изменил ревизию",
+        "result": "Новая ревизия совпала с Cargo.lock. Проверка кеша достижима.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;abcdef0123456789abcdef0123456789abcdef01;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "Новая ревизия совпала с Cargo.lock."],
+        "lines": {"sync": [79, 82], "snapshot": [269, 277], "bash": [107]}
+      },
+      {
+        "label": "Upstream сменил репозиторий",
+        "result": "Новый канонический URL совпал с Cargo.lock. Проверка кеша достижима.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/renamed#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/renamed;0123456789abcdef0123456789abcdef01234567;renamed-%commit%/crates/example'", "Новый канонический URL совпал с Cargo.lock."],
+        "lines": {"sync": [79, 82], "snapshot": [269, 272], "bash": [107]}
+      },
+      {
+        "label": "В generated пропущен crate",
+        "result": "Git synchronization failed: extra: upstream Git dependency is missing from GIT_CRATES.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"\nname = \"extra\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "extra: upstream Git dependency is missing from GIT_CRATES."],
+        "lines": {"sync": [78, 79, 80, 81], "snapshot": [265, 266], "bash": [107]},
+        "fail": 1
+      },
+      {
+        "label": "В generated лишняя запись",
+        "result": "Git synchronization failed: extra: GIT_CRATES entry is absent from upstream Cargo.lock.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n[extra]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/extra'", "extra: GIT_CRATES entry is absent from upstream Cargo.lock."],
+        "lines": {"sync": [78, 79, 80, 81], "snapshot": [267, 268], "bash": [107]},
+        "fail": 1
+      },
+      {
+        "label": "Дублирующая запись generated",
+        "result": "Git synchronization failed: Duplicate GIT_CRATES entry for 'example'.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "Duplicate GIT_CRATES entry for 'example'."],
+        "lines": {"sync": [77], "snapshot": [130, 131], "bash": [107]},
+        "fail": 0
+      },
+      {
+        "label": "Неподдерживаемый unpack path",
+        "result": "Git synchronization failed: Unsafe unpack path for 'example': 'repository-%commit%/../example'.",
+        "values": ["name = \"example\"\nsource = \"git+https://github.com/example/repository#0123456789abcdef0123456789abcdef01234567\"", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/../example'", "Unsafe unpack path for 'example': 'repository-%commit%/../example'."],
+        "lines": {"sync": [61, 62, 77], "snapshot": [], "bash": [107]},
+        "fail": 0
+      }
+    ]
+  },
+  "git-member": {
+    "title": "От записи GIT_CRATES до package.name",
+    "layout": "flow",
+    "panels": ["Запись → репозиторий и ревизия", "Кеш и путь после подстановки %commit%", "Ожидаемый элемент tar", "Содержимое или результат проверки"],
+    "gates": ["Открыть архив", "Найти единственный обычный Cargo.toml допустимого размера", "Прочитать TOML", "Сверить package.name"],
+    "cases": [
+      {
+        "label": "Cargo.toml найден, имя совпало",
+        "result": "Идентичность crate подтверждена этой проверкой.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "[package]\nname = \"example\""],
+        "lines": {"sync": [84, 85, 88, 91, 93, 94, 95]}
+      },
+      {
+        "label": "Архив отсутствует",
+        "result": "Git synchronization failed: Cannot validate source for 'example': [Errno 2] No such file or directory: 'cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz'",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "Файла в cache/ нет."],
+        "lines": {"sync": [87, 88, 97, 98]},
+        "fail": 0
+      },
+      {
+        "label": "Элемент отсутствует",
+        "result": "Git synchronization failed: Invalid Cargo.toml for 'example' in repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "matches = []"],
+        "lines": {"sync": [89, 90, 91]},
+        "fail": 1
+      },
+      {
+        "label": "Два элемента с тем же именем",
+        "result": "Git synchronization failed: Invalid Cargo.toml for 'example' in repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "len(matches) = 2"],
+        "lines": {"sync": [89, 90, 91]},
+        "fail": 1
+      },
+      {
+        "label": "Элемент является каталогом",
+        "result": "Git synchronization failed: Invalid Cargo.toml for 'example' in repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "len(matches) = 1 · isfile() = False"],
+        "lines": {"sync": [89, 90, 91]},
+        "fail": 1
+      },
+      {
+        "label": "Размер превышает 2 000 000 байт",
+        "result": "Git synchronization failed: Invalid Cargo.toml for 'example' in repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "matches[0].size = 2 000 001"],
+        "lines": {"sync": [89, 90, 91]},
+        "fail": 1
+      },
+      {
+        "label": "TOML повреждён",
+        "result": "Git synchronization failed: Cannot validate source for 'example': Expected ']' at the end of a table declaration (at end of document)",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "[package · незакрытый заголовок"],
+        "lines": {"sync": [92, 94, 97, 98]},
+        "fail": 2
+      },
+      {
+        "label": "package.name не совпадает",
+        "result": "Git synchronization failed: Crate identity mismatch for 'example'.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'\n\nhttps://github.com/example/repository\n0123456789abcdef0123456789abcdef01234567", "cache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\n\nrepository-0123456789abcdef0123456789abcdef01234567/crates/example", "repository-0123456789abcdef0123456789abcdef01234567/crates/example/Cargo.toml", "[package]\nname = \"other\""],
+        "lines": {"sync": [94, 95, 96]},
+        "fail": 3
+      }
+    ]
+  },
+  "candidate-replace": {
+    "title": "Когда меняется файл кандидата",
+    "layout": "compare",
+    "panels": ["Временный файл в candidate.parent", "Что осталось в candidate после операции"],
+    "gates": ["Прочитать generated", "Проверить Git-снимок и архивы", "Прочитать candidate", "Найти оба блока", "Собрать текст в памяти", "Проверить offline substitutions", "Записать временный файл", "Проверить временный snapshot", "Установить обычные биты доступа", "Заменить candidate", "Убрать временный файл, если он остался"],
+    "cases": [
+      {
+        "label": "Синхронизация успешна",
+        "result": "candidate заменён. Новый GIT_CRATES стоит между прежними частями текста.",
+        "values": ["Временный файл проверен и переименован. В finally путь уже отсутствует.", "Новый блок · прежний LICENSE · прежний SRC_URI"],
+        "lines": {"sync": [108, 110, 113, 115, 116, 117, 118, 120, 121]}
+      },
+      {
+        "label": "Снимок generated неверен",
+        "result": "Git synchronization failed: extra: upstream Git dependency is missing from GIT_CRATES.",
+        "values": ["Временный файл ещё не создавался.", "Исходный текст candidate сохранён."],
+        "lines": {"sync": [104]},
+        "fail": 1
+      },
+      {
+        "label": "Нет единственного блока",
+        "result": "Git synchronization failed: Expected exactly one GIT_CRATES block.",
+        "values": ["Временный файл ещё не создавался.", "Исходный текст candidate сохранён."],
+        "lines": {"sync": [26, 27, 106]},
+        "fail": 3
+      },
+      {
+        "label": "Offline substitution отклонена",
+        "result": "Git synchronization failed: Malformed offline path declaration 'EXAMPLE_PATH'.",
+        "values": ["Текст собран в памяти. Временный файл ещё не создавался.", "Исходный текст candidate сохранён."],
+        "lines": {"sync": [108, 110]},
+        "fail": 5
+      },
+      {
+        "label": "Временный snapshot отклонён",
+        "result": "Git synchronization failed: example: expected offline Git declaration is absent from upstream Cargo.toml.",
+        "values": ["Временный файл записан. finally удаляет его.", "Исходный текст candidate сохранён."],
+        "lines": {"sync": [115, 116, 120, 121]},
+        "fail": 7,
+        "cleanup": true
+      },
+      {
+        "label": "Замена файла завершилась ошибкой",
+        "result": "Учебный пример · replace получил отказ файловой системы, временный файл удалось удалить.",
+        "values": ["Временный файл прошёл проверку. После отказа replace finally пытается удалить его.", "Исходный текст candidate сохранён."],
+        "lines": {"sync": [116, 117, 118, 120, 121]},
+        "fail": 9,
+        "cleanup": true
+      }
+    ]
+  },
+  "offline-boundary": {
+    "title": "Сгенерированный pin и ручные offline substitutions",
+    "layout": "flow",
+    "panels": ["Вход из нового GIT_CRATES", "Ручные строки ebuild · учебный фрагмент", "Проверка временного кандидата по upstream"],
+    "gates": ["Разобрать offline substitutions в памяти", "Сверить временный ebuild с upstream", "Переход к замене кандидата"],
+    "cases": [
+      {
+        "label": "Подстановка приняла commit",
+        "result": "Кандидат может быть заменён. Ручные строки используют новую ревизию.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "git_crate_commit example EXAMPLE_COMMIT\nlocal EXAMPLE_GIT=\"example = { git = \\\"https://github.com/example/repository\\\", rev = \\\"${EXAMPLE_COMMIT}\\\"\"\nlocal EXAMPLE_PATH=\"example = { path = \\\"${WORKDIR}/repository-${EXAMPLE_COMMIT}/crates/example\\\"\"", "example = { git = \"https://github.com/example/repository\", rev = \"0123456789abcdef0123456789abcdef01234567\" }\n\nWEBRTC_COMMIT и corgi.toml: pin-1"],
+        "lines": {"sync": [110, 116], "snapshot": [211, 216, 227, 247, 253, 303, 304]}
+      },
+      {
+        "label": "Crate для подстановки удалён",
+        "result": "Git synchronization failed: Offline commit 'EXAMPLE_COMMIT' references missing GIT_CRATES entry 'example'.",
+        "values": ["[another]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/another'", "git_crate_commit example EXAMPLE_COMMIT\nlocal EXAMPLE_GIT=\"example = { git = \\\"https://github.com/example/repository\\\", rev = \\\"${EXAMPLE_COMMIT}\\\"\"\nlocal EXAMPLE_PATH=\"example = { path = \\\"${WORKDIR}/repository-${EXAMPLE_COMMIT}/crates/example\\\"\"", "Временная проверка пропущена."],
+        "lines": {"sync": [110], "snapshot": [214, 216, 219]},
+        "fail": 0
+      },
+      {
+        "label": "Git-декларация исчезла",
+        "result": "Git synchronization failed: example: expected offline Git declaration is absent from upstream Cargo.toml.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "git_crate_commit example EXAMPLE_COMMIT\nlocal EXAMPLE_GIT=\"example = { git = \\\"https://github.com/example/repository\\\", rev = \\\"${EXAMPLE_COMMIT}\\\"\"\nlocal EXAMPLE_PATH=\"example = { path = \\\"${WORKDIR}/repository-${EXAMPLE_COMMIT}/crates/example\\\"\"", "Cargo.toml: ожидаемой подстроки нет."],
+        "lines": {"sync": [110, 116], "snapshot": [303, 304, 306, 309]},
+        "fail": 1
+      },
+      {
+        "label": "WEBRTC_COMMIT расходится",
+        "result": "Git synchronization failed: WEBRTC_COMMIT differs from upstream corgi.toml\nebuild: pin-1\nupstream: pin-2",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "git_crate_commit example EXAMPLE_COMMIT\nlocal EXAMPLE_GIT=\"example = { git = \\\"https://github.com/example/repository\\\", rev = \\\"${EXAMPLE_COMMIT}\\\"\"\nlocal EXAMPLE_PATH=\"example = { path = \\\"${WORKDIR}/repository-${EXAMPLE_COMMIT}/crates/example\\\"\"", "example = { git = \"https://github.com/example/repository\", rev = \"0123456789abcdef0123456789abcdef01234567\" }\n\nWEBRTC_COMMIT=\"pin-1\"\ncorgi.toml: version = \"pin-2\""],
+        "lines": {"sync": [110, 116], "snapshot": [288, 289, 293, 295, 296, 297, 309]},
+        "fail": 1
+      },
+      {
+        "label": "Неверная форма пути",
+        "result": "Git synchronization failed: Malformed offline path declaration 'EXAMPLE_PATH'.",
+        "values": ["[example]='https://github.com/example/repository;0123456789abcdef0123456789abcdef01234567;repository-%commit%/crates/example'", "git_crate_commit example EXAMPLE_COMMIT\nlocal EXAMPLE_GIT=\"example = { git = \\\"https://github.com/example/repository\\\", rev = \\\"${EXAMPLE_COMMIT}\\\"\"\nlocal EXAMPLE_PATH=\"example = { path = \\\"${WORKDIR}/repository-old/crates/example\\\"\"", "Путь не содержит ожидаемую ревизию."],
+        "lines": {"sync": [110], "snapshot": [247, 252, 253, 254]},
+        "fail": 0
+      }
+    ]
+  },
+  "license-sets": {
+    "title": "Разности множеств LICENSE",
+    "layout": "compare",
+    "panels": ["Кандидат · присваивание → множество", "Generated · присваивание → множество", "Общие термины и две разности", "Отчёт stdout"],
+    "gates": [],
+    "cases": [
+      {
+        "label": "Совпадают термины",
+        "result": "Отчёт печатается после синхронизации Git. LICENSE кандидата сохраняется.",
+        "values": ["LICENSE=\"Apache-2.0 MIT\"\n→ [\"Apache-2.0\", \"MIT\"]", "LICENSE+=\"MIT Apache-2.0\"\n→ [\"Apache-2.0\", \"MIT\"]", "Общие: [\"Apache-2.0\", \"MIT\"]\nТолько generated: []\nТолько candidate: []", "Git dependency count: 1\nGenerated-only licenses for review: []\nCandidate-only licenses for review: []"],
+        "lines": {"sync": [127, 128, 140, 141, 142, 143, 144, 145], "bash": [107]}
+      },
+      {
+        "label": "Новый термин в generated",
+        "result": "Отчёт печатается после синхронизации Git. LICENSE кандидата сохраняется.",
+        "values": ["LICENSE=\"Apache-2.0 MIT\"\n→ [\"Apache-2.0\", \"MIT\"]", "LICENSE+=\"MIT Apache-2.0 BSD\"\n→ [\"Apache-2.0\", \"BSD\", \"MIT\"]", "Общие: [\"Apache-2.0\", \"MIT\"]\nТолько generated: [\"BSD\"]\nТолько candidate: []", "Git dependency count: 1\nGenerated-only licenses for review: [\"BSD\"]\nCandidate-only licenses for review: []"],
+        "lines": {"sync": [127, 128, 140, 141, 142, 143, 144, 145], "bash": [107]}
+      },
+      {
+        "label": "В generated пропал термин",
+        "result": "Отчёт печатается после синхронизации Git. LICENSE кандидата сохраняется.",
+        "values": ["LICENSE=\"Apache-2.0 MIT\"\n→ [\"Apache-2.0\", \"MIT\"]", "LICENSE+=\"MIT\"\n→ [\"MIT\"]", "Общие: [\"MIT\"]\nТолько generated: []\nТолько candidate: [\"Apache-2.0\"]", "Git dependency count: 1\nGenerated-only licenses for review: []\nCandidate-only licenses for review: [\"Apache-2.0\"]"],
+        "lines": {"sync": [127, 128, 140, 141, 142, 143, 144, 145], "bash": [107]}
+      },
+      {
+        "label": "Различия в обе стороны",
+        "result": "Отчёт печатается после синхронизации Git. LICENSE кандидата сохраняется.",
+        "values": ["LICENSE=\"Apache-2.0 MIT\"\n→ [\"Apache-2.0\", \"MIT\"]", "LICENSE+=\"MIT BSD ZLIB\"\n→ [\"BSD\", \"MIT\", \"ZLIB\"]", "Общие: [\"MIT\"]\nТолько generated: [\"BSD\", \"ZLIB\"]\nТолько candidate: [\"Apache-2.0\"]", "Git dependency count: 1\nGenerated-only licenses for review: [\"BSD\", \"ZLIB\"]\nCandidate-only licenses for review: [\"Apache-2.0\"]"],
+        "lines": {"sync": [127, 128, 140, 141, 142, 143, 144, 145], "bash": [107]}
+      }
+    ]
+  },
+  "uri-migrate": {
+    "title": "Переход на registry-архив оверлея",
+    "layout": "compare",
+    "panels": ["Фрагмент до rewrite-uri · учебный ebuild", "Фрагмент на диске после rewrite-uri"],
+    "gates": ["Прочитать UTF-8 текст", "Проверить исходную структуру", "Заменить legacy URI в памяти", "Проверить оставшиеся legacy-ссылки", "Проверить итоговую структуру", "Записать текст"],
+    "cases": [
+      {
+        "label": "Корректный legacy URI",
+        "result": "Distribution rewrite-uri: OK",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz\n\""],
+        "lines": {"bash": [108], "dist": [157, 158, 161, 162, 243]}
+      },
+      {
+        "label": "Overlay URI уже записан",
+        "result": "Distribution rewrite-uri: OK · тот же текст записан снова",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz\n\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz\n\""],
+        "lines": {"bash": [108], "dist": [157, 158, 161, 162, 243]}
+      },
+      {
+        "label": "В блоке оба crates URI",
+        "result": "Distribution validation failed: Unexpected candidate crates SRC_URI",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n    https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz\n\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n    https://github.com/vovanbl411/zed-overlay/releases/download/crates-v${PV/_/-}/${P/_/-}-overlay-crates.tar.xz\n\""],
+        "lines": {"bash": [108], "dist": [146, 147, 148, 149, 157, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Legacy URI продублирован",
+        "result": "Distribution validation failed: Unexpected candidate crates SRC_URI",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\""],
+        "lines": {"bash": [108], "dist": [146, 147, 148, 149, 157, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Crates URI вне блока",
+        "result": "Distribution validation failed: Candidate crates URL is not an SRC_URI entry",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n\"\n# https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n\"\n# https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz"],
+        "lines": {"bash": [108], "dist": [146, 150, 151, 152, 157, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Неверная строка upstream source",
+        "result": "Distribution validation failed: Upstream source SRC_URI mismatch",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> source.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> source.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\""],
+        "lines": {"bash": [108], "dist": [143, 144, 145, 157, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Присваиваний SRC_URI несколько",
+        "result": "Distribution validation failed: Expected exactly one simple SRC_URI assignment",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"\nSRC_URI+=\"other.tar.gz\"", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"\nSRC_URI+=\"other.tar.gz\""],
+        "lines": {"bash": [108], "dist": [139, 140, 141, 142, 157, 241]},
+        "fail": 1
+      },
+      {
+        "label": "Осталась legacy-ссылка",
+        "result": "Distribution validation failed: Unexpected legacy crates source",
+        "values": ["SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"\n# https://github.com/gentoo-crate-dist/zed", "SRC_URI=\"\n    https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz\n    https://github.com/gentoo-crate-dist/zed/releases/download/v${PV/_/-}/${P/_/-}-crates.tar.xz\n\"\n# https://github.com/gentoo-crate-dist/zed"],
+        "lines": {"bash": [108], "dist": [158, 159, 160, 241]},
+        "fail": 3
+      }
+    ]
+  },
+  "integrity-flow": {
+    "title": "От общих локальных входов до строки 165",
+    "layout": "compare",
+    "panels": ["Локальные файлы · учебный запуск 1.29.0", "Состояние кандидата"],
+    "gates": ["Cargo.lock checksum", "Распаковать эталонное дерево", "Сравнить исходники", "Проверить distribution identity", "Скопировать Git-архивы в dist", "Проверить сгенерированный Git-снимок и cache", "Проверить и заменить блок кандидата", "Напечатать отчёт и записать summary через tee", "Переписать SRC_URI", "Достигнуть строки 165"],
+    "cases": [
+      {
+        "label": "Успешная generation",
+        "result": "Обе общие функции завершились. Следующий вызов — строка 165.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\nvenv/ · license-mapping.conf · logs/generator.log", "GIT_CRATES: обновлён\nSRC_URI: overlay URI записан\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: достигнута"],
+        "lines": {"bash": [163, 164, 165]}
+      },
+      {
+        "label": "Успешная reuse",
+        "result": "Повторно используются подготовленные входы. Следующий вызов — строка 165.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: обновлён\nSRC_URI: overlay URI записан\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: достигнута"],
+        "lines": {"bash": [163, 164, 165]}
+      },
+      {
+        "label": "Cargo.lock изменился",
+        "result": "test вернул 1.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nCargo.lock изменён · source-verify/ ещё отсутствует\nGit-архив в dist/ отсутствует", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [96, 163]},
+        "fail": 0
+      },
+      {
+        "label": "Рабочее дерево изменилось",
+        "result": "diff вернул 1 после проверки lock и повторной распаковки.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\nGit-архив в dist/ отсутствует", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [99, 163]},
+        "fail": 2
+      },
+      {
+        "label": "Distribution identity расходится",
+        "result": "Distribution validation failed: Upstream commit, source archive or Cargo.lock mismatch",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\nGit-архив в dist/ отсутствует", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [100, 101, 102, 163]},
+        "fail": 3
+      },
+      {
+        "label": "Сбой копирования Git-архивов",
+        "result": "Учебный пример · единственный исходный архив есть в cache, но cp не смог открыть файл назначения. Код 1.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\nGit-архив в dist/ отсутствует", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [103, 163]},
+        "fail": 4
+      },
+      {
+        "label": "Git-снимок generated неверен",
+        "result": "Git synchronization failed: example: upstream Git dependency is missing from GIT_CRATES.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [107, 164], "sync": [79, 81]},
+        "fail": 5
+      },
+      {
+        "label": "Offline substitution отклонена",
+        "result": "Git synchronization failed: Malformed offline path declaration 'EXAMPLE_PATH'.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [107, 164], "sync": [110]},
+        "fail": 6
+      },
+      {
+        "label": "Временный snapshot отклонён",
+        "result": "Git synchronization failed: example: expected offline Git declaration is absent from upstream Cargo.toml.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: старый\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [107, 164], "sync": [116, 120, 121]},
+        "fail": 6
+      },
+      {
+        "label": "Сбой tee после синхронизации",
+        "result": "Python=0, tee=1, конвейер=1. GIT_CRATES уже заменён. Bash остановился до rewrite-uri.",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: обновлён\nSRC_URI: legacy URI сохранён\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [107, 164], "sync": [118, 143, 144, 145]},
+        "fail": 7
+      },
+      {
+        "label": "Сбой SRC_URI после замены",
+        "result": "Distribution validation failed: Unexpected candidate crates SRC_URI",
+        "values": ["source/zed-1.29.0/\ndist/zed-1.29.0.tar.gz\ndist/zed-1.29.0-overlay-crates.tar.xz\ndist/zed-1.29.0-overlay-crates.json\ncache/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz\ngenerated-zed.ebuild\nsource-verify/zed-1.29.0/\ndist/repository-0123456789abcdef0123456789abcdef01234567.gh.tar.gz", "GIT_CRATES: обновлён\nSRC_URI: некорректная исходная запись сохранена\nРучная логика упаковки сохранена\nManifest: исходный\nСтрока 165: пропущена"],
+        "lines": {"bash": [108, 164], "dist": [148, 149, 157]},
+        "fail": 8
+      }
+    ]
+  }
+}
