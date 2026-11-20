@@ -1,9 +1,10 @@
-{% assign lab = site.data.integrity_labs[include.lab] %}
+{% assign lab_data = include.data | default: site.data.integrity_labs %}
+{% assign lab = lab_data[include.lab] %}
 {% assign initial_case = lab.cases.first %}
 {% capture integrity_diagram %}
 <div class="integrity-panels integrity-{{ lab.layout }}">
   {% for label in lab.panels %}
-  <div class="workspace{% if forloop.last and lab.layout == 'flow' %} integrity-output{% endif %}">
+  <div class="workspace{% if initial_case.active_panel == forloop.index0 %} integrity-output{% elsif forloop.last and lab.layout == 'flow' %} integrity-output{% endif %}">
     <strong>{{ label | escape }}</strong>
     <pre data-integrity-panel>{{ initial_case.values[forloop.index0] | escape }}</pre>
   </div>

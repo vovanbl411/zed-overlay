@@ -47,6 +47,19 @@ sections:
   - { id: license-term-differences, label: "4.37. Сравниваем лицензионные термины" }
   - { id: migrate-crates-uri, label: "4.38. Обновляем SRC_URI" }
   - { id: metadata-synchronization-flow, label: "4.39. Завершаем синхронизацию метаданных" }
+  - { id: portage-candidate, label: "4.40. От подготовленного кандидата к Portage" }
+  - { id: portage-manifest-copy, label: "4.41. Сохраняем исходный Manifest" }
+  - { id: portage-donor, label: "4.42. Передаём том Portage во временный контейнер" }
+  - { id: portage-bind-mounts, label: "4.43. Подключаем overlay и experiment через bind mounts" }
+  - { id: portage-workdir, label: "4.44. Выбираем рабочий каталог внутри контейнера" }
+  - { id: portage-env, label: "4.45. Передаём переменные через docker --env" }
+  - { id: portage-candidate-paths, label: "4.46. Преобразуем пути кандидата" }
+  - { id: portage-inner-bash, label: "4.47. Запускаем вложенный Bash" }
+  - { id: portage-repos-conf, label: "4.48. Создаём repos.conf" }
+  - { id: portage-keywords-use, label: "4.49. Настраиваем ACCEPT_KEYWORDS и USE" }
+  - { id: portage-distdir, label: "4.50. Настраиваем и проверяем DISTDIR" }
+  - { id: portage-log-timing, label: "4.51. Записываем журнал контейнера и результаты измерений" }
+  - { id: portage-environment-check, label: "4.52. Проверяем готовность контейнерного окружения" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -2177,3 +2190,197 @@ def rewrite_uri(candidate: Path) -> None:
 
 {% capture integrity_source %}{% raw %}timed 'Candidate validation' validate_candidate{% endraw %}{% endcapture %}
 {% include source-preview.html source=integrity_source label="Следующая команда · строка 165" path=script revision=revision start=165 open=true %}
+
+## 4.40. От подготовленного кандидата к Portage {#portage-candidate}
+
+К строке 165 обе предыдущие функции завершились успешно. `verify_inputs()` проверила входы и скопировала Git-архивы в `dist/`. `sync_metadata()` обновила `GIT_CRATES` и URI crates-архива в `SRC_URI` ebuild из одноразовой копии overlay. Manifest ещё ждёт генерации. Теперь `validate_candidate()` сохраняет его исходное содержимое и готовит среду, в которой Portage прочитает обновлённый ebuild.
+
+{% capture portage_launch %}{% raw %}validate_candidate() {
+  cp "$overlay/app-editors/zed/Manifest" "$work/original-Manifest"
+  docker run --rm --volumes-from zed-independent-portage \
+    --mount "type=bind,src=$overlay,dst=/overlay" \
+    --mount "type=bind,src=$work,dst=/experiment" \
+    --workdir /overlay \
+    --env CANDIDATE_VERSION="$version" \
+    --env EXPECTED_ARCHIVE_SHA256="$(sha256sum "$archive" | cut -d' ' -f1)" \
+    --env EXPECTED_SOURCE_SHA256="$source_hash" \
+    --env CANDIDATE_EBUILD="/overlay/${candidate#"$overlay"/}" \
+    --env CANDIDATE_PATCH="/overlay/${patch#"$overlay"/}" \
+    "$GENTOO_STAGE3_IMAGE" /bin/bash -euo pipefail -c '{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_launch label="Запуск контейнера · строки 111–122" path=script revision=revision start=111 open=true %}
+
+## 4.41. Сохраняем исходный Manifest {#portage-manifest-copy}
+
+{% capture portage_copy %}{% raw %}validate_candidate() {
+  cp "$overlay/app-editors/zed/Manifest" "$work/original-Manifest"{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_copy label="Начало функции и копирование · строки 111–112" path=script revision=revision start=111 open=true %}
+
+`cp` сохраняет содержимое `$overlay/app-editors/zed/Manifest` в `$work/original-Manifest` до запуска Docker. После подключения `$work` эта копия доступна внутри контейнера как `/experiment/original-Manifest`. Она нужна для сравнения с Manifest после генерации. Если исходный файл нельзя прочитать или копию нельзя записать, внешний Bash останавливается на `cp`.
+
+В модели будущее состояние предполагает, что команда генерации позже завершилась успешно. Правила сравнения рассмотрим в фазе 4.5.
+
+{% capture portage_previews %}{% include source-preview.html source=portage_copy label="Копирование · строки 111–112" path=script revision=revision start=111 %}{% endcapture %}
+{% include integrity-lab.html lab="portage-manifest" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.42. Передаём том Portage во временный контейнер {#portage-donor}
+
+{% capture portage_donor %}{% raw %}  docker run --rm --volumes-from zed-independent-portage \{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_donor label="Docker run и тома донора · строка 113" path=script revision=revision start=113 open=true %}
+
+В [4.15](#prepare-portage) команда `docker create` уже создала `zed-independent-portage`. Донор может оставаться остановленным. `docker run` создаёт и запускает другой контейнер, из образа по ссылке в `$GENTOO_STAGE3_IMAGE`. Здесь потребителем является stage3. Флаг `--volumes-from zed-independent-portage` подключает тома донора по их путям в контейнере. Скрипт ожидает дерево Gentoo в `/var/db/repos/gentoo`: оттуда он ранее читал таблицу лицензий, и этот же путь укажет в `repos.conf`. Закреплённые образы локально отсутствовали, поэтому размещение дерева описано по контракту скрипта. [Справка Docker по `--volumes-from`](https://docs.docker.com/reference/cli/docker/container/run/#volumes-from).
+
+При выходе `--rm` удаляет запущенный stage3 и его собственные анонимные тома. Донор остаётся отдельным контейнером до обработки внешнего [`EXIT`](#cleanup). [Справка Docker по `--rm`](https://docs.docker.com/reference/cli/docker/container/run/#rm).
+
+## 4.43. Подключаем overlay и experiment через bind mounts {#portage-bind-mounts}
+
+{% capture portage_mounts %}{% raw %}    --mount "type=bind,src=$overlay,dst=/overlay" \
+    --mount "type=bind,src=$work,dst=/experiment" \{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_mounts label="Два bind mount · строки 114–115" path=script revision=revision start=114 open=true %}
+
+Docker открывает файлы каталогов хоста по новым путям внутри контейнера. `src` указывает путь на хосте Docker, `dst` — точку монтирования в контейнере. В CI каталог runner доступен демону по указанному пути. Если источник `--mount type=bind` отсутствует, Docker отклоняет запуск. [Справка Docker по bind mounts](https://docs.docker.com/engine/storage/bind-mounts/).
+
+Оба подключения допускают запись с учётом прав доступа к файлам. При последующей генерации Manifest запись в `/overlay/app-editors/zed/Manifest` изменит файл в одноразовой копии overlay на хосте. Выберите подключение, чтобы увидеть его файлы и строку Docker, которая задаёт путь.
+
+{% capture portage_previews %}{% include source-preview.html source=portage_mounts label="Подключения · строки 114–115" path=script revision=revision start=114 %}{% endcapture %}
+{% include integrity-lab.html lab="portage-mounts" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.44. Выбираем рабочий каталог внутри контейнера {#portage-workdir}
+
+{% capture portage_cwd %}{% raw %}    --workdir /overlay \{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_cwd label="Рабочий каталог · строка 116" path=script revision=revision start=116 open=true %}
+
+`cd` меняет текущий каталог самого Bash. Родительский скрипт уже выполнил `cd "$disposable_workspace"`, поэтому внешний Bash работает в одноразовой копии на runner. Как и [`git -C`]({{ previous }}#source-workspace), `--workdir` задаёт каталог для запускаемой операции. Внутренний Bash начинает работу в `/overlay`, и относительные пути в его программе разрешаются оттуда. Текущий каталог внешнего Bash при этом остаётся прежним.
+
+Например, `scripts/inspect_zed_archive.py` на строках 136–137 означает `/overlay/scripts/inspect_zed_archive.py`. Тот же принцип применяется к `scripts/crates_distribution.py` и `scripts/check_zed_cargo_snapshot.py`. Абсолютные пути под `/experiment` и `/etc/portage` от рабочего каталога не зависят.
+
+## 4.45. Передаём переменные через docker --env {#portage-env}
+
+{% capture portage_env %}{% raw %}    --env CANDIDATE_VERSION="$version" \
+    --env EXPECTED_ARCHIVE_SHA256="$(sha256sum "$archive" | cut -d' ' -f1)" \
+    --env EXPECTED_SOURCE_SHA256="$source_hash" \
+    --env CANDIDATE_EBUILD="/overlay/${candidate#"$overlay"/}" \
+    --env CANDIDATE_PATCH="/overlay/${patch#"$overlay"/}" \{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_env label="Пять значений окружения · строки 117–121" path=script revision=revision start=117 open=true %}
+
+Внешний Bash подставляет значения в пять аргументов `ИМЯ=значение`. Docker помещает эти пары в окружение процесса контейнера. Внутренний Bash читает переданные значения по именам слева от `=`. Выберите переменную, чтобы проследить её от входа до места чтения. [Справка Docker по `--env`](https://docs.docker.com/reference/cli/docker/container/run/#env).
+
+В строке 118 `sha256sum "$archive"` печатает хеш и имя файла, а `cut -d' ' -f1` оставляет первое поле. Как в [4.12](#fingerprints), `$(…)` захватывает stdout и убирает завершающие переводы строк. Внешний `pipefail` сохраняет ошибку `sha256sum` в статусе внутреннего конвейера. Здесь Bash подставляет его **вывод** в аргумент `docker run`, поэтому ошибка хеширования сама по себе не задаёт статус Docker. При пустом stdout Docker может получить `EXPECTED_ARCHIVE_SHA256=`. Позже проверка контрольной суммы использует переданное значение.
+
+{% capture portage_previews %}{% include source-preview.html source=portage_env label="Переменные · строки 117–121" path=script revision=revision start=117 %}{% endcapture %}
+{% include integrity-lab.html lab="portage-env" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.46. Преобразуем пути кандидата {#portage-candidate-paths}
+
+{% capture portage_paths %}{% raw %}    --env CANDIDATE_EBUILD="/overlay/${candidate#"$overlay"/}" \
+    --env CANDIDATE_PATCH="/overlay/${patch#"$overlay"/}" \{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_paths label="Подстановка пути ebuild и patch · строки 120–121" path=script revision=revision start=120 open=true %}
+
+`${candidate#"$overlay"/}` удаляет кратчайший совпавший префикс. Кавычки вокруг `$overlay` задают буквальный текст каталога, а `/` завершает префикс. Для `$patch` работает та же подстановка. Затем Bash добавляет `/overlay/`, чтобы путь начинался с точки монтирования в контейнере.
+
+| Шаг | Ebuild | Patch |
+| --- | --- | --- |
+| Исходный путь | `/tmp/zed-overlay/app-editors/zed/zed-1.29.2.ebuild` | `/tmp/zed-overlay/app-editors/zed/files/zed-1.29.2-wayland-only.patch` |
+| Удаляемый префикс | `/tmp/zed-overlay/` | `/tmp/zed-overlay/` |
+| Остаток | `app-editors/zed/zed-1.29.2.ebuild` | `app-editors/zed/files/zed-1.29.2-wayland-only.patch` |
+| Путь после добавления `/overlay/` | `/overlay/app-editors/zed/zed-1.29.2.ebuild` | `/overlay/app-editors/zed/files/zed-1.29.2-wayland-only.patch` |
+
+Оба входа ожидаются под `"$overlay"/`: родительский скрипт строит абсолютные пути от каталога одноразовой копии. Если префикс не совпадёт, значение останется целиком, например `/tmp/other/zed-1.29.2.ebuild` превратится в `/overlay//tmp/other/zed-1.29.2.ebuild`. Подстановка работает со строкой, а файл проверяется позже при обращении по полученному пути.
+
+## 4.47. Запускаем вложенный Bash {#portage-inner-bash}
+
+{% capture portage_bash %}{% raw %}    "$GENTOO_STAGE3_IMAGE" /bin/bash -euo pipefail -c '{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_bash label="Образ и начало программы Bash · строка 122" path=script revision=revision start=122 open=true %}
+
+После опций `docker run` идёт ссылка на образ. За ней идут команда контейнера `/bin/bash` и её аргументы. В `-euo pipefail` флаг `-e` включает `errexit`, а `-u` делает раскрытие неустановленной переменной ошибкой. С `pipefail` статус конвейера равен статусу последнего справа звена, завершившегося с ошибкой, или 0 при успехе всех звеньев. Внутренний Bash получает эти настройки при запуске. У внешнего Bash свои параметры. `-c` велит Bash выполнить следующий аргумент как программу. [Синтаксис `docker run`](https://docs.docker.com/reference/cli/docker/container/run/).
+
+Одинарная кавычка в строке 122 открывает один многострочный аргумент. Внешний Bash сохраняет его текст буквально до закрывающей кавычки в строке 146. Так `$version` в опции Docker раскрывается на runner, а `$CANDIDATE_VERSION` в программе раскрывается в контейнере. Лаборатория использует фиксированные примеры из исходника.
+
+{% capture portage_previews %}
+{% include source-preview.html source=portage_launch label="Аргументы внешнего Bash · строки 111–122" path=script revision=revision start=111 %}
+{% capture portage_setup %}{% raw %}      mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
+      printf "%s\n" "[DEFAULT]" "main-repo = gentoo" "[gentoo]" "location = /var/db/repos/gentoo" "auto-sync = no" "[zed-overlay]" "location = /overlay" "masters = gentoo" "auto-sync = no" > /etc/portage/repos.conf/zed-overlay.conf
+      printf "=app-editors/zed-%s::zed-overlay ~amd64\n" "$CANDIDATE_VERSION" > /etc/portage/package.accept_keywords/zed-candidate
+      printf "%s\n" "media-libs/vulkan-loader wayland" "media-video/pipewire sound-server" > /etc/portage/package.use/zed-validation
+      export DISTDIR=/experiment/dist
+      test "$(portageq envvar DISTDIR)" = "$DISTDIR"
+      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_setup label="Программа внутри stage3 · строки 123–129" path=script revision=revision start=123 open=true %}
+{% endcapture %}
+{% include integrity-lab.html lab="portage-shell" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.48. Создаём repos.conf {#portage-repos-conf}
+
+{% capture portage_repos %}{% raw %}      mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
+      printf "%s\n" "[DEFAULT]" "main-repo = gentoo" "[gentoo]" "location = /var/db/repos/gentoo" "auto-sync = no" "[zed-overlay]" "location = /overlay" "masters = gentoo" "auto-sync = no" > /etc/portage/repos.conf/zed-overlay.conf{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_repos label="Каталоги конфигурации и repos.conf · строки 123–124" path=script revision=revision start=123 open=true %}
+
+`mkdir -p` готовит каталоги для трёх файлов. Строка 124 выводит по одному аргументу на строку через `printf "%s\n"`. Перенаправление `>` открывает файл `/etc/portage/repos.conf/zed-overlay.conf` для записи с заменой прежнего содержимого.
+
+Portage использует основное дерево Gentoo из тома донора для профилей, зависимостей и общих eclass. В `/overlay` находится репозиторий с ebuild кандидата. Для него `masters = gentoo` задаёт связь с основным деревом. Обе записи исключены из автоматической синхронизации через `auto-sync = no`. Эта настройка относится к синхронизации репозиториев. Другие операции сохраняют возможность доступа к сети.
+
+{% capture portage_previews %}
+{% include source-preview.html source=portage_donor label="Том Gentoo · строка 113" path=script revision=revision start=113 %}
+{% include source-preview.html source=portage_mounts label="Подключения · строки 114–115" path=script revision=revision start=114 %}
+{% include source-preview.html source=portage_repos label="Настройка репозиториев · строки 123–124" path=script revision=revision start=123 %}
+{% endcapture %}
+{% include integrity-lab.html lab="portage-repos" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.49. Настраиваем ACCEPT_KEYWORDS и USE {#portage-keywords-use}
+
+{% capture portage_flags %}{% raw %}      printf "=app-editors/zed-%s::zed-overlay ~amd64\n" "$CANDIDATE_VERSION" > /etc/portage/package.accept_keywords/zed-candidate
+      printf "%s\n" "media-libs/vulkan-loader wayland" "media-video/pipewire sound-server" > /etc/portage/package.use/zed-validation{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_flags label="Настройки пакетов · строки 125–126" path=script revision=revision start=125 open=true %}
+
+В `package.accept_keywords/zed-candidate` записывается атом `=app-editors/zed-<version>::zed-overlay` и разрешённый keyword `~amd64`. `app-editors/zed` задаёт категорию и имя пакета, `=` с версией выбирает конкретную версию, а `::zed-overlay` ограничивает совпадение этим репозиторием. `~amd64` разрешает Portage рассматривать ebuild с соответствующим тестовым keyword для amd64.
+
+В `package.use/zed-validation` записываются флаги для двух пакетов. `wayland` включается для `media-libs/vulkan-loader`, `sound-server` — для `media-video/pipewire`. Это настройки разрешения зависимостей во временном контейнере. Обе записи лежат в его `/etc/portage`, вне подключённых каталогов хоста. Политика Wayland-only задаётся отдельно в overlay, а запуск Zed под Wayland подтверждается ручной проверкой.
+
+{% capture portage_previews %}{% include source-preview.html source=portage_flags label="Два файла настроек · строки 125–126" path=script revision=revision start=125 %}{% endcapture %}
+{% include integrity-lab.html lab="portage-flags" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.50. Настраиваем и проверяем DISTDIR {#portage-distdir}
+
+{% capture portage_distdir %}{% raw %}      export DISTDIR=/experiment/dist
+      test "$(portageq envvar DISTDIR)" = "$DISTDIR"{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_distdir label="Экспорт и проверка DISTDIR · строки 127–128" path=script revision=revision start=127 open=true %}
+
+`export` задаёт `DISTDIR` и передаёт её дочерним процессам внутреннего Bash. `portageq envvar DISTDIR` печатает эффективное значение настройки Portage. Подстановка команды передаёт этот вывод в `test`, а `=` сравнивает две строки. Если запрос завершится с ошибкой и ничего не напечатает, сравнение пустой строки с `/experiment/dist` вернёт 1. Статус запроса здесь отдельно не проверяется.
+
+Значение `/experiment/dist` указывает на `$work/dist` на хосте. Равенство строк не открывает каталог и ничего не сообщает о доступности файлов. Хеширование на строках 129–130 уже читает сами архивы. Выберите ситуацию, чтобы увидеть, до какого шага дойдёт Bash.
+
+{% capture portage_previews %}
+{% include source-preview.html source=portage_distdir label="Проверка значения · строки 127–128" path=script revision=revision start=127 %}
+{% capture portage_next %}{% raw %}      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_next label="Первое чтение архива · строка 129" path=script revision=revision start=129 open=true %}
+{% endcapture %}
+{% include integrity-lab.html lab="portage-distdir" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.51. Записываем журнал контейнера и результаты измерений {#portage-log-timing}
+
+{% capture portage_output %}{% raw %}    ' 2>&1 | tee "$work/logs/portage.log"
+  cat "$work/logs/timing.txt" >> "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+{% include source-preview.html source=portage_output label="Журнал и перенос замеров · строки 146–147" path=script revision=revision start=146 open=true %}
+
+Первая одинарная кавычка в строке 146 закрывает программу для `bash -c`. Операторы после неё выполняет внешний Bash. Как в [4.21](#generator-streams), `2>&1` направляет stderr команды Docker туда же, куда stdout. `tee` записывает объединённый поток в `$work/logs/portage.log` и выводит его в журнал задания. Если контейнер завершится с ошибкой, `tee` может сохранить весь вывод, который успел поступить. Внешний `pipefail` возвращает ненулевой статус, даже если `tee` получил и записал этот поток успешно.
+
+Внутренний Bash дописывает замеры в `/experiment/logs/timing.txt` во время следующих этапов. Через bind mount этот файл виден на хосте как `$work/logs/timing.txt`. Лишь после успеха Docker и `tee` внешний Bash доходит до `cat` и дописывает содержимое файла в `$GITHUB_STEP_SUMMARY` через `>>`.
+
+{% capture portage_previews %}{% include source-preview.html source=portage_output label="Вывод и замеры · строки 146–147" path=script revision=revision start=146 %}{% endcapture %}
+{% include integrity-lab.html lab="portage-output" data=site.data.portage_labs previews=portage_previews %}
+
+## 4.52. Проверяем готовность контейнерного окружения {#portage-environment-check}
+
+В карте PASS означает, что шаг в выбранном сценарии прошёл, FAIL — что шаг или показанное условие не выполнены, SKIP — что выполнение до него не дошло. Строки карты с путями показывают и условия, которые скрипт проверяет лишь при дальнейшем использовании. Например, неверный путь ebuild можно передать через `--env` и дойти до строки 129. В этом сценарии файл не обнаружится при более позднем вызове `ebuild`.
+
+Успешная настройка окружения позволяет начать проверку архива. В реальном запуске тот же контейнер продолжает выполнять строки 129–145. В них входят проверки архивов, работа с Manifest, разрешение зависимостей, проверки Cargo snapshot и Wayland patch. Итоговый статус контейнера становится известен после этой работы или при первом отказе.
+
+{% capture portage_previews %}
+{% include source-preview.html source=portage_launch label="Подготовка запуска · строки 111–122" path=script revision=revision start=111 %}
+{% include source-preview.html source=portage_setup label="Настройки и переход · строки 123–129" path=script revision=revision start=123 %}
+{% include source-preview.html source=portage_output label="Статус конвейера и замеры · строки 146–147" path=script revision=revision start=146 %}
+{% endcapture %}
+{% include integrity-lab.html lab="portage-flow" data=site.data.portage_labs previews=portage_previews %}
+
+Строка 129 открывает фазу 4.5. Внутренний Bash передаёт ожидаемый хеш и путь к crates-архиву в `sha256sum -c -`.
+
+{% include source-preview.html source=portage_next label="Начало проверки crates-архива · строка 129" path=script revision=revision start=129 open=true %}

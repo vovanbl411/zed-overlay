@@ -1,0 +1,703 @@
+{
+  "portage-manifest": {
+    "title": "Что лежит в двух файлах Manifest",
+    "layout": "compare",
+    "panels": [
+      "Manifest в overlay",
+      "Копия в experiment"
+    ],
+    "cases": [
+      {
+        "label": "До запуска Docker",
+        "values": [
+          "/overlay/app-editors/zed/Manifest\nИсходное содержимое",
+          "/experiment/original-Manifest\nИсходное содержимое"
+        ],
+        "result": "Строка 112 выполнена. Оба файла содержат исходный Manifest.",
+        "lines": {
+          "bash": [
+            112
+          ]
+        }
+      },
+      {
+        "label": "После будущей успешной генерации",
+        "values": [
+          "/overlay/app-editors/zed/Manifest\nРезультат генерации (условный)",
+          "/experiment/original-Manifest\nИсходное содержимое"
+        ],
+        "result": "Так будут выглядеть файлы, если более поздняя команда генерации завершится успешно.",
+        "lines": {
+          "bash": [
+            112
+          ]
+        }
+      }
+    ]
+  },
+  "portage-mounts": {
+    "title": "Где видны файлы хоста",
+    "layout": "compare",
+    "panels": [
+      "Одноразовая копия overlay",
+      "Рабочий каталог crates"
+    ],
+    "cases": [
+      {
+        "label": "Overlay → /overlay",
+        "values": [
+          "/tmp/zed-overlay → /overlay\n├── app-editors/zed/zed-1.29.2.ebuild\n├── app-editors/zed/files/zed-1.29.2-wayland-only.patch\n├── app-editors/zed/Manifest\n└── scripts/",
+          "/tmp/zed-independent → /experiment\n├── original-Manifest\n├── dist/\n├── source/\n└── logs/"
+        ],
+        "result": "Выбран /overlay. Чтение и запись здесь обращаются к файлам в /tmp/zed-overlay.",
+        "lines": {
+          "bash": [
+            114
+          ]
+        },
+        "active_panel": 0
+      },
+      {
+        "label": "Experiment → /experiment",
+        "values": [
+          "/tmp/zed-overlay → /overlay\n├── app-editors/zed/zed-1.29.2.ebuild\n├── app-editors/zed/files/zed-1.29.2-wayland-only.patch\n├── app-editors/zed/Manifest\n└── scripts/",
+          "/tmp/zed-independent → /experiment\n├── original-Manifest\n├── dist/\n├── source/\n└── logs/"
+        ],
+        "result": "Выбран /experiment. Например, /experiment/dist показывает /tmp/zed-independent/dist с хоста.",
+        "lines": {
+          "bash": [
+            115
+          ]
+        },
+        "active_panel": 1
+      }
+    ]
+  },
+  "portage-env": {
+    "title": "Как значение доходит до команды в контейнере",
+    "layout": "compare",
+    "panels": [
+      "Источник на runner",
+      "Значение в окружении и его применение"
+    ],
+    "cases": [
+      {
+        "label": "CANDIDATE_VERSION",
+        "values": [
+          "version=1.29.2\nПервый аргумент скрипта",
+          "CANDIDATE_VERSION=1.29.2\nСтрока 125: версия для atom.\nСтроки 129–130: имена архивов."
+        ],
+        "result": "Одна версия входит в имя пакета и имена входных файлов.",
+        "lines": {
+          "bash": [
+            117
+          ]
+        }
+      },
+      {
+        "label": "EXPECTED_ARCHIVE_SHA256",
+        "values": [
+          "/tmp/zed-independent/dist/zed-1.29.2-overlay-crates.tar.xz\nsha256sum | cut → SHA-256 учебного файла",
+          "EXPECTED_ARCHIVE_SHA256=48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nСтрока 129: ожидаемый хеш crates-архива."
+        ],
+        "result": "На runner читается crates-архив. Передаётся первое поле вывода sha256sum.",
+        "lines": {
+          "bash": [
+            118
+          ]
+        }
+      },
+      {
+        "label": "EXPECTED_SOURCE_SHA256",
+        "values": [
+          "/tmp/zed-independent/dist/zed-1.29.2.tar.gz\nsource_hash → SHA-256 учебного файла (в скрипте вычислен на строке 54)",
+          "EXPECTED_SOURCE_SHA256=7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nСтрока 130: ожидаемый хеш архива исходников."
+        ],
+        "result": "Ранее сохранённый source_hash входит в аргумент Docker без повторного хеширования.",
+        "lines": {
+          "bash": [
+            119
+          ]
+        }
+      },
+      {
+        "label": "CANDIDATE_EBUILD",
+        "values": [
+          "candidate=/tmp/zed-overlay/app-editors/zed/zed-1.29.2.ebuild",
+          "CANDIDATE_EBUILD=/overlay/app-editors/zed/zed-1.29.2.ebuild\nСтрока 132: путь для ebuild.\nСтрока 143: вход проверки Cargo snapshot."
+        ],
+        "result": "В аргументе Docker уже находится путь внутри /overlay.",
+        "lines": {
+          "bash": [
+            120
+          ]
+        }
+      },
+      {
+        "label": "CANDIDATE_PATCH",
+        "values": [
+          "patch=/tmp/zed-overlay/app-editors/zed/files/zed-1.29.2-wayland-only.patch",
+          "CANDIDATE_PATCH=/overlay/app-editors/zed/files/zed-1.29.2-wayland-only.patch\nСтрока 144: файл для перенаправления stdin команды patch."
+        ],
+        "result": "Путь patch преобразуется по тому же префиксу.",
+        "lines": {
+          "bash": [
+            121
+          ]
+        }
+      }
+    ]
+  },
+  "portage-shell": {
+    "title": "Какой Bash раскрывает переменную",
+    "layout": "compare",
+    "panels": [
+      "Внешний Bash · runner",
+      "Внутренний Bash · stage3"
+    ],
+    "cases": [
+      {
+        "label": "На runner · $overlay, $work",
+        "values": [
+          "$overlay → /tmp/zed-overlay\n$work → /tmp/zed-independent\nЗначения входят в src= для Docker.",
+          "/overlay и /experiment уже смонтированы к моменту запуска Bash."
+        ],
+        "result": "Bash на runner собирает два аргумента --mount.",
+        "lines": {
+          "bash": [
+            114,
+            115
+          ]
+        },
+        "active_panel": 0
+      },
+      {
+        "label": "На runner · $version, $archive, $source_hash",
+        "values": [
+          "$version → 1.29.2\n$archive → /tmp/zed-independent/dist/zed-1.29.2-overlay-crates.tar.xz\n$source_hash → сохранённый SHA-256 исходников",
+          "Docker передаёт CANDIDATE_VERSION, EXPECTED_ARCHIVE_SHA256 и EXPECTED_SOURCE_SHA256."
+        ],
+        "result": "Подстановка команды для crates и раскрытие двух переменных происходят на runner.",
+        "lines": {
+          "bash": [
+            117,
+            118,
+            119
+          ]
+        },
+        "active_panel": 0
+      },
+      {
+        "label": "На runner · $candidate, $patch, $GENTOO_STAGE3_IMAGE",
+        "values": [
+          "Bash заменяет префикс путей у двух файлов и раскрывает ссылку на образ.",
+          "/overlay/app-editors/zed/zed-1.29.2.ebuild\n/overlay/app-editors/zed/files/zed-1.29.2-wayland-only.patch\nПути доступны как CANDIDATE_EBUILD и CANDIDATE_PATCH."
+        ],
+        "result": "Аргументы заканчиваются ссылкой на образ, командой /bin/bash и её параметрами.",
+        "lines": {
+          "bash": [
+            120,
+            121,
+            122
+          ]
+        },
+        "active_panel": 0
+      },
+      {
+        "label": "В stage3 · $CANDIDATE_VERSION",
+        "values": [
+          "В программу для -c попадает буквальный текст \"$CANDIDATE_VERSION\".",
+          "$CANDIDATE_VERSION → 1.29.2\nprintf записывает atom для 1.29.2."
+        ],
+        "result": "Внутренний Bash раскрывает значение, полученное от Docker.",
+        "lines": {
+          "bash": [
+            122,
+            125
+          ]
+        },
+        "active_panel": 1
+      },
+      {
+        "label": "В stage3 · $DISTDIR и $EXPECTED_ARCHIVE_SHA256",
+        "values": [
+          "Внешний Bash передаёт литералы $DISTDIR и $EXPECTED_ARCHIVE_SHA256 в тексте программы.",
+          "$DISTDIR → /experiment/dist (export)\n$EXPECTED_ARCHIVE_SHA256 → 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61 (учебное значение из --env)"
+        ],
+        "result": "Обе переменные раскрываются внутри stage3. DISTDIR задаёт сам внутренний Bash.",
+        "lines": {
+          "bash": [
+            127,
+            128,
+            129
+          ]
+        },
+        "active_panel": 1
+      }
+    ]
+  },
+  "portage-repos": {
+    "title": "Как Portage находит оба дерева",
+    "layout": "compare",
+    "panels": [
+      "/etc/portage/repos.conf/zed-overlay.conf",
+      "Что означает выбранная секция"
+    ],
+    "cases": [
+      {
+        "label": "[DEFAULT]",
+        "values": [
+          "[DEFAULT]\nmain-repo = gentoo\n[gentoo]\nlocation = /var/db/repos/gentoo\nauto-sync = no\n[zed-overlay]\nlocation = /overlay\nmasters = gentoo\nauto-sync = no",
+          "main-repo = gentoo\nОсновное дерево среды называется gentoo."
+        ],
+        "result": "Имя из main-repo указывает на секцию [gentoo].",
+        "lines": {
+          "bash": [
+            124
+          ]
+        }
+      },
+      {
+        "label": "[gentoo]",
+        "values": [
+          "[DEFAULT]\nmain-repo = gentoo\n[gentoo]\nlocation = /var/db/repos/gentoo\nauto-sync = no\n[zed-overlay]\nlocation = /overlay\nmasters = gentoo\nauto-sync = no",
+          "Том донора → /var/db/repos/gentoo\nАвтоматическая синхронизация отключена."
+        ],
+        "result": "По этому пути Portage ожидает основное дерево.",
+        "lines": {
+          "bash": [
+            113,
+            124
+          ]
+        }
+      },
+      {
+        "label": "[zed-overlay]",
+        "values": [
+          "[DEFAULT]\nmain-repo = gentoo\n[gentoo]\nlocation = /var/db/repos/gentoo\nauto-sync = no\n[zed-overlay]\nlocation = /overlay\nmasters = gentoo\nauto-sync = no",
+          "/tmp/zed-overlay → /overlay\nmasters = gentoo\nАвтоматическая синхронизация отключена."
+        ],
+        "result": "Кандидат лежит в overlay, а masters связывает его с gentoo.",
+        "lines": {
+          "bash": [
+            114,
+            124
+          ]
+        }
+      }
+    ]
+  },
+  "portage-flags": {
+    "title": "Как версия меняет содержимое файлов",
+    "layout": "compare",
+    "panels": [
+      "package.accept_keywords/zed-candidate",
+      "package.use/zed-validation"
+    ],
+    "cases": [
+      {
+        "label": "Кандидат 1.29.2",
+        "values": [
+          "=app-editors/zed-1.29.2::zed-overlay ~amd64",
+          "media-libs/vulkan-loader wayland\nmedia-video/pipewire sound-server"
+        ],
+        "result": "CANDIDATE_VERSION=1.29.2. Версия подставляется в первую запись, флаги для зависимостей одинаковы.",
+        "lines": {
+          "bash": [
+            125,
+            126
+          ]
+        }
+      },
+      {
+        "label": "Кандидат 1.28.1",
+        "values": [
+          "=app-editors/zed-1.28.1::zed-overlay ~amd64",
+          "media-libs/vulkan-loader wayland\nmedia-video/pipewire sound-server"
+        ],
+        "result": "CANDIDATE_VERSION=1.28.1. Версия подставляется в первую запись, флаги для зависимостей одинаковы.",
+        "lines": {
+          "bash": [
+            125,
+            126
+          ]
+        }
+      }
+    ]
+  },
+  "portage-distdir": {
+    "title": "Какое значение сравнивает test",
+    "layout": "compare",
+    "panels": [
+      "Экспорт и ответ Portage",
+      "Переход к чтению архива"
+    ],
+    "cases": [
+      {
+        "label": "Значения совпадают",
+        "values": [
+          "DISTDIR=/experiment/dist\nportageq → /experiment/dist",
+          "test → 0\nСтрока 129 достижима."
+        ],
+        "result": "Настройка совпала. Следующая команда сможет начать проверку архива.",
+        "lines": {
+          "bash": [
+            127,
+            128,
+            129
+          ]
+        }
+      },
+      {
+        "label": "Portage сообщает другой каталог",
+        "values": [
+          "DISTDIR=/experiment/dist\nportageq → /var/cache/distfiles",
+          "test → 1\nСтрока 129 пропущена."
+        ],
+        "result": "Строки различаются. Внутренний Bash останавливается на test.",
+        "lines": {
+          "bash": [
+            128
+          ]
+        }
+      },
+      {
+        "label": "Запрос Portage завершился ошибкой",
+        "values": [
+          "DISTDIR=/experiment/dist\nportageq → пустой stdout, статус 1",
+          "test → 1\nСтрока 129 пропущена."
+        ],
+        "result": "Для test подставилась пустая строка, поэтому сравнение вернуло 1.",
+        "lines": {
+          "bash": [
+            128
+          ]
+        }
+      },
+      {
+        "label": "Каталог недоступен",
+        "values": [
+          "DISTDIR=/experiment/dist\nportageq → /experiment/dist",
+          "test → 0\nНа строке 129 чтение файла завершится ошибкой."
+        ],
+        "result": "Строки совпадают даже при недоступном каталоге. Ошибка проявится при чтении архива.",
+        "lines": {
+          "bash": [
+            128,
+            129
+          ]
+        }
+      }
+    ]
+  },
+  "portage-output": {
+    "title": "Когда замеры попадут в сводку",
+    "layout": "flow",
+    "panels": [
+      "Журнал через tee",
+      "Замеры через bind mount"
+    ],
+    "cases": [
+      {
+        "label": "Контейнер и tee завершились успешно",
+        "values": [
+          "Docker stdout + stderr → tee → журнал задания и $work/logs/portage.log",
+          "/experiment/logs/timing.txt\n$work/logs/timing.txt → $GITHUB_STEP_SUMMARY"
+        ],
+        "result": "Конвейер вернул 0. Внешний Bash дописывает замеры в сводку.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        }
+      },
+      {
+        "label": "Контейнер завершился ошибкой",
+        "values": [
+          "Docker=1 → tee=0\n$work/logs/portage.log может содержать частичный вывод.",
+          "На хосте могут остаться предыдущие замеры этого запуска. Строка 147 пропущена."
+        ],
+        "result": "Pipefail сохраняет сбой Docker. Внешний Bash останавливается после строки 146.",
+        "lines": {
+          "bash": [
+            146
+          ]
+        }
+      },
+      {
+        "label": "tee не смог записать portage.log",
+        "values": [
+          "Docker=0, tee=1\nЗапись файла журнала завершилась ошибкой.",
+          "timing.txt доступен, но строка 147 пропущена."
+        ],
+        "result": "Успех контейнера сам по себе не открывает перенос замеров: конвейер вернул 1.",
+        "lines": {
+          "bash": [
+            146
+          ]
+        }
+      }
+    ]
+  },
+  "portage-flow": {
+    "title": "От копии Manifest до первой контрольной суммы",
+    "layout": "compare",
+    "panels": [
+      "До проверки архива",
+      "Итог запуска"
+    ],
+    "cases": [
+      {
+        "label": "Окружение готово, дальнейшие проверки прошли",
+        "values": [
+          "DISTDIR совпал. Bash дошёл до строки 129.",
+          "Условный успех строк 129–145 → Docker=0 и tee=0 → замеры перенесены."
+        ],
+        "result": "Настройка открывает проверку архивов. Успех контейнера известен только после оставшихся команд.",
+        "lines": {
+          "bash": [
+            112,
+            113,
+            114,
+            115,
+            116,
+            117,
+            118,
+            119,
+            120,
+            121,
+            122,
+            123,
+            124,
+            125,
+            126,
+            127,
+            128,
+            129,
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      },
+      {
+        "label": "На хосте отсутствует $overlay при запуске Docker",
+        "values": [
+          "Копия Manifest уже создана, но затем $overlay перемещён. Docker отклоняет bind mount.",
+          "Docker сообщает ошибку запуска. tee может записать её в portage.log."
+        ],
+        "result": "Конфигурация Portage и проверка архивов пропущены.",
+        "lines": {
+          "bash": [
+            113,
+            114,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "FAIL",
+          "FAIL",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Демон Docker недоступен",
+        "values": [
+          "Пути существуют, но Docker не может создать потребителя stage3.",
+          "tee может записать сообщение Docker. Замеры не переносятся."
+        ],
+        "result": "Внутренний Bash не запустился.",
+        "lines": {
+          "bash": [
+            113,
+            122,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Неверный effective DISTDIR",
+        "values": [
+          "portageq напечатал /var/cache/distfiles. test вернул 1.",
+          "Внутренний Bash завершился с ошибкой. Строка 147 пропущена."
+        ],
+        "result": "Строка 129 пропущена, хотя stage3 запустился.",
+        "lines": {
+          "bash": [
+            127,
+            128,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Путь ebuild не лежит под $overlay",
+        "values": [
+          "CANDIDATE_EBUILD=/overlay//tmp/other/zed-1.29.2.ebuild. Настройка Portage проходит.",
+          "После успешного хеширования более поздний вызов ebuild не найдёт файл по этому пути."
+        ],
+        "result": "Подстановка пути не проверяет файл. Строка 129 достижима, но весь сценарий завершится ошибкой.",
+        "lines": {
+          "bash": [
+            120,
+            129,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Не удалось записать repos.conf",
+        "values": [
+          "Каталоги созданы. Перенаправление строки 124 не смогло открыть файл.",
+          "Контейнер возвращает ошибку. Настройки пакетов, экспорт DISTDIR и перенос замеров пропущены."
+        ],
+        "result": "Внутренний Bash остановился до проверки архивов.",
+        "lines": {
+          "bash": [
+            123,
+            124,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Контейнер завершился ошибкой после настройки",
+        "values": [
+          "test вернул 0. Bash приступил к проверке архива.",
+          "Одна из команд строк 129–145 завершилась с ошибкой. tee сохранил доступный вывод."
+        ],
+        "result": "Строка 129 достигнута, но ненулевой статус Docker через pipefail останавливает перенос замеров.",
+        "lines": {
+          "bash": [
+            128,
+            129,
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      }
+    ],
+    "gates": [
+      "Снимок исходного Manifest",
+      "Донор тома Portage",
+      "Исходные bind-пути доступны",
+      "Запуск stage3",
+      "Подключения /overlay и /experiment",
+      "Рабочий каталог /overlay",
+      "Переменные переданы через --env",
+      "Пути ebuild и patch указывают на файлы",
+      "Файл repos.conf записан",
+      "Файлы ACCEPT_KEYWORDS и USE записаны",
+      "Проверка effective DISTDIR",
+      "Можно начать проверку на строке 129",
+      "Контейнер завершил весь сценарий",
+      "Строка 147 дописала замеры"
+    ]
+  }
+}
