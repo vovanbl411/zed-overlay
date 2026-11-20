@@ -26,11 +26,11 @@ Gentoo — дистрибутив Linux, в котором систему сбо
 
 ## Bash — подготовка кандидата Zed
 
-Разберите, как скрипт получает окружение от runner, переносит снимок Git
-во временный каталог и проверяет результат подготовки. Проследите, куда
-попадают вывод и ошибки конвейера с `tee`.
+Разберите, как родительский скрипт готовит кандидата во временной копии
+оверлея, а дочерний сверяет скачанные исходники с деревом Git.
 
-<a class="primary-link" href="{{ '/internals/02-shell-scripts/validate-release-candidate/' | relative_url }}">Читать главу <span aria-hidden="true">→</span></a>
+- [Подготовка кандидата Zed]({{ '/internals/02-shell-scripts/validate-release-candidate/' | relative_url }})
+- [Подготовка crates и проверка исходников]({{ '/internals/02-shell-scripts/independent-crates/' | relative_url }})
 </div>
 
 Справочник рассчитан на читателя, который впервые открывает репозиторий.

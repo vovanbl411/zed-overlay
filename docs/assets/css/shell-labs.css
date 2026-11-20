@@ -341,3 +341,134 @@
   .completion-fan li::after { display: none; }
   .completion-validator::before { content: "↓" / ""; bottom: 100%; left: .4rem; right: auto; }
 }
+
+.acquisition-lab { min-width: 0; }
+.acquisition-lab code, .acquisition-flow code { overflow-wrap: anywhere; }
+.acquisition-lab pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acq-values {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(0, 2fr);
+  gap: 0 .8rem;
+  margin-block: .75rem;
+}
+.acq-values > * { border-bottom: 1px solid var(--rule); padding: .4rem 0; margin: 0; min-width: 0; }
+.acq-values dt { color: var(--muted); font-size: .9rem; }
+.acq-gates { margin-block: .75rem; }
+.acq-trace-label { margin-bottom: 0; font-size: .9rem; font-weight: 650; }
+.acq-gates > li { flex-wrap: nowrap; }
+.acq-gates .lesson-status { flex-shrink: 0; }
+.acq-code-fragment { text-decoration: underline; text-underline-offset: .2em; color: var(--accent); }
+[data-node][data-present="false"] > code { color: var(--muted); }
+.acq-git { display: grid; gap: .65rem; margin-top: .75rem; }
+.acq-git-row {
+  display: grid;
+  grid-template-columns: minmax(0, .85fr) auto minmax(0, 1.2fr) auto minmax(0, 1.2fr);
+  align-items: center;
+  gap: .35rem .65rem;
+  padding: .55rem .7rem;
+  border-left: 2px solid var(--rule);
+}
+.acq-git-row[data-tag-type="light"] > :nth-child(2) { grid-column: 2 / 5; text-align: center; }
+.acq-git-row.shell-focus { border-color: var(--accent); }
+.acq-git-row small, .acq-fingerprints small, .acq-inputs small {
+  display: block;
+  color: var(--muted);
+}
+.acq-records { margin: .75rem 0; }
+.acq-diagnostic, .acq-records pre {
+  border-left: 2px solid var(--rule);
+  background: var(--paper);
+  padding: .65rem;
+}
+.acq-record-table { width: 100%; table-layout: fixed; }
+.acquisition-flow figcaption { margin-bottom: .75rem; }
+.acq-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem 1rem;
+  padding: 0 0 .55rem;
+  border-bottom: 1px solid var(--rule);
+  list-style: none;
+}
+.acq-verifier { width: fit-content; margin: 0 auto; }
+.acq-converge { text-align: center; color: var(--accent); }
+.acq-trees h4 { margin: 0 0 .4rem; }
+.acq-trees [data-entry="root"], .acq-trees .acq-tree-root { padding-left: 0; }
+.acq-trees [data-entry="root"].shell-path-current > ul { border-left-color: var(--accent); }
+.acq-trees li[hidden] { display: none; }
+.acq-fingerprints {
+  border-left: 1px solid var(--rule);
+  margin: .5rem 0 .8rem .4rem;
+  padding-left: .9rem;
+}
+.acq-fingerprints p { padding: .35rem .55rem; border-left: 2px solid var(--rule); margin: 0; }
+.acq-fingerprints > .shell-focus { border-color: var(--accent); }
+.acq-provenance { margin-bottom: 0; }
+
+@media (max-width: 520px) {
+  .acq-values { grid-template-columns: minmax(6rem, .8fr) minmax(0, 1.2fr); gap: 0 .55rem; }
+  .acq-git-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .acq-git-row[data-tag-type="light"] > :nth-child(2) { grid-column: auto; }
+  .acq-git-row > [aria-hidden="true"] { transform: rotate(90deg); width: 1rem; }
+  .acq-trees .shell-path-tree ul ul { margin-left: .25rem; padding-left: .35rem; }
+}
+
+.crates-docker-lanes, .crates-transfer, .crates-streams {
+  display: grid;
+  gap: .55rem;
+  align-items: stretch;
+}
+.crates-docker-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crates-docker-lanes > *, .crates-transfer > *, .crates-streams > * { min-width: 0; }
+.crates-docker p, .crates-transfer p { margin: 0; }
+.crates-docker { text-align: center; }
+.crates-docker figcaption { text-align: start; margin-bottom: .85rem; }
+.crates-image, .crates-container, .crates-volume, .crates-transfer p, .crates-path {
+  padding: .55rem .7rem;
+  border: 1px solid var(--rule);
+  border-radius: .45rem;
+}
+.crates-image { border-style: dashed; }
+.crates-container { background: var(--paper); }
+.crates-volume { background: var(--accent-fill); border-color: var(--accent); }
+.crates-edge { color: var(--accent); font-size: .85rem; padding: .35rem 0; align-self: center; }
+.crates-transfer, .crates-streams { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.crates-streams .flow-node { display: grid; }
+.crates-path { margin-top: .55rem; }
+.crates-lab small, .crates-docker small { display: block; color: var(--muted); }
+.crates-lab [data-crates-detail]:empty { display: none; }
+.crates-lab .acq-gates > li > div { min-width: 0; }
+.crates-lab .acq-gates > li { padding-block: .35rem; }
+.crates-lab pre, .crates-lab code, .crates-docker code, .crates-records code {
+  overflow-wrap: anywhere;
+}
+.crates-lab pre { white-space: pre-wrap; }
+.crates-lab [data-crates-tree] { white-space: pre; font-size: .79rem; }
+.crates-branches .flow-node { display: grid; }
+.crates-converge { margin: 0; text-align: center; }
+.crates-local { margin-block: .65rem; }
+.crates-local pre { white-space: pre-wrap; }
+.crates-lab .shell-file-grid { margin-top: .7rem; }
+.crates-lab .crates-payloads { margin-block: .7rem; }
+.crates-payloads .flow-node { margin: 0; }
+
+@media (max-width: 550px) {
+  .crates-transfer, .crates-streams { grid-template-columns: minmax(0, 1fr); }
+  .crates-transfer > .crates-edge[aria-hidden] { justify-self: center; transform: rotate(90deg); padding: 0; }
+  .crates-docker-lanes { gap: .35rem; }
+  .crates-docker .crates-container, .crates-docker .crates-image { padding-inline: .35rem; }
+}
+
+.crates-docker-lanes.crates-edge { padding-block: .55rem; }
+.crates-payloads + .crates-volume { margin-block: .65rem; }
+@media (max-width: 550px) {
+  .crates-lab .shell-file-grid { grid-template-columns: minmax(0, 1fr); }
+  [data-crates-mapping-edge], [data-crates-pipe] { justify-self: center; transform: none; }
+}
