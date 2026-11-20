@@ -419,3 +419,56 @@
   .acq-git-row > [aria-hidden="true"] { transform: rotate(90deg); width: 1rem; }
   .acq-trees .shell-path-tree ul ul { margin-left: .25rem; padding-left: .35rem; }
 }
+
+.crates-docker-lanes, .crates-transfer, .crates-streams {
+  display: grid;
+  gap: .55rem;
+  align-items: stretch;
+}
+.crates-docker-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crates-docker-lanes > *, .crates-transfer > *, .crates-streams > * { min-width: 0; }
+.crates-docker p, .crates-transfer p { margin: 0; }
+.crates-docker { text-align: center; }
+.crates-docker figcaption { text-align: start; margin-bottom: .85rem; }
+.crates-image, .crates-container, .crates-volume, .crates-transfer p, .crates-path {
+  padding: .55rem .7rem;
+  border: 1px solid var(--rule);
+  border-radius: .45rem;
+}
+.crates-image { border-style: dashed; }
+.crates-container { background: var(--paper); }
+.crates-volume { background: var(--accent-fill); border-color: var(--accent); }
+.crates-edge { color: var(--accent); font-size: .85rem; padding: .35rem 0; align-self: center; }
+.crates-transfer, .crates-streams { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.crates-streams .flow-node { display: grid; }
+.crates-path { margin-top: .55rem; }
+.crates-lab small, .crates-docker small { display: block; color: var(--muted); }
+.crates-lab [data-crates-detail]:empty { display: none; }
+.crates-lab .acq-gates > li > div { min-width: 0; }
+.crates-lab .acq-gates > li { padding-block: .35rem; }
+.crates-lab pre, .crates-lab code, .crates-docker code, .crates-records code {
+  overflow-wrap: anywhere;
+}
+.crates-lab pre { white-space: pre-wrap; }
+.crates-lab [data-crates-tree] { white-space: pre; font-size: .79rem; }
+.crates-branches .flow-node { display: grid; }
+.crates-converge { margin: 0; text-align: center; }
+.crates-local { margin-block: .65rem; }
+.crates-local pre { white-space: pre-wrap; }
+.crates-lab .shell-file-grid { margin-top: .7rem; }
+.crates-lab .crates-payloads { margin-block: .7rem; }
+.crates-payloads .flow-node { margin: 0; }
+
+@media (max-width: 550px) {
+  .crates-transfer, .crates-streams { grid-template-columns: minmax(0, 1fr); }
+  .crates-transfer > .crates-edge[aria-hidden] { justify-self: center; transform: rotate(90deg); padding: 0; }
+  .crates-docker-lanes { gap: .35rem; }
+  .crates-docker .crates-container, .crates-docker .crates-image { padding-inline: .35rem; }
+}
+
+.crates-docker-lanes.crates-edge { padding-block: .55rem; }
+.crates-payloads + .crates-volume { margin-block: .65rem; }
+@media (max-width: 550px) {
+  .crates-lab .shell-file-grid { grid-template-columns: minmax(0, 1fr); }
+  [data-crates-mapping-edge], [data-crates-pipe] { justify-self: center; transform: none; }
+}

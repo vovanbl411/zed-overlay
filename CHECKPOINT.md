@@ -113,7 +113,9 @@ integrated into `main` in PR #50. Phase 3.4 covered completion branches, the
 release handoff, the metadata digest, distribution validation, and GitHub
 Actions outputs.
 
-Phase 4.1 of `independent-crates.sh` covers
-startup and upstream source acquisition, including Git-tree verification and
-local fingerprints. It is implemented and awaits owner review. The next phase
-covers environment preparation and generation or reuse of the crates archive.
+Phase 4.1 of `independent-crates.sh` covers startup, upstream source
+acquisition, Git-tree verification, and local fingerprints. It passed owner
+and static review. Phase 4.2 covers Portage and generator preparation,
+generation or reuse of the crates archive, and the resulting local files.
+It is implemented and awaits owner review. The next phase covers input
+integrity and metadata synchronization.
