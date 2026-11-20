@@ -60,6 +60,21 @@ sections:
   - { id: portage-distdir, label: "4.50. Настраиваем и проверяем DISTDIR" }
   - { id: portage-log-timing, label: "4.51. Записываем журнал контейнера и результаты измерений" }
   - { id: portage-environment-check, label: "4.52. Проверяем готовность контейнерного окружения" }
+  - { id: final-archive-boundary, label: "4.53. От конфигурации Portage к проверке архивов" }
+  - { id: final-sha256, label: "4.54. Проверяем SHA256 через sha256sum -c" }
+  - { id: final-manifest-generation, label: "4.55. Запускаем ebuild manifest" }
+  - { id: final-recheck, label: "4.56. Почему после Manifest снова проверяем архивы?" }
+  - { id: final-manifest-digests, label: "4.57. Сверяем Manifest с содержимым distfiles" }
+  - { id: final-manifest-preservation, label: "4.58. Сохраняем прежние DIST-записи" }
+  - { id: final-emerge, label: "4.59. Проверяем разрешение зависимостей через emerge" }
+  - { id: final-cargo-snapshot, label: "4.60. Повторно проверяем Cargo Git snapshot" }
+  - { id: final-wayland-patch, label: "4.61. Выполняем Wayland patch dry-run" }
+  - { id: final-validation-timing, label: "4.62. Собираем результаты измерений времени" }
+  - { id: final-docker-return, label: "4.63. Возвращаемся из Docker во внешний Bash" }
+  - { id: final-distribution, label: "4.64. Формируем crates-distribution" }
+  - { id: final-result-file, label: "4.65. Записываем generation или reuse в result.txt" }
+  - { id: final-exit, label: "4.66. Завершаем скрипт и выполняем cleanup" }
+  - { id: final-script-map, label: "4.67. Полный путь independent-crates.sh" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -2384,3 +2399,693 @@ Portage использует основное дерево Gentoo из тома 
 Строка 129 открывает фазу 4.5. Внутренний Bash передаёт ожидаемый хеш и путь к crates-архиву в `sha256sum -c -`.
 
 {% include source-preview.html source=portage_next label="Начало проверки crates-архива · строка 129" path=script revision=revision start=129 open=true %}
+
+{% assign packaged_revision = 'e3523562379eaf24e05e73107d5f18fdacdcede7' %}
+{% capture final_helpers %}{% raw %}start_total=$SECONDS
+summary() { printf '%s\n' "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+timed() { local label="$1"; shift; local started=$SECONDS; "$@"; summary "$label: $((SECONDS - started))s"; }{% endraw %}{% endcapture %}
+{% capture final_trap_lines %}{% raw %}cleanup() { docker rm -f zed-independent-portage >/dev/null 2>&1 || true; }
+trap cleanup EXIT{% endraw %}{% endcapture %}
+{% capture final_full_start %}{% raw %}#!/usr/bin/env bash
+# Generate or reuse validated crates in the read-only check job.
+set -euo pipefail
+
+version="${1:?candidate version required}"
+candidate="${2:?candidate ebuild required}"
+patch="${3:?candidate patch required}"
+overlay="${4:?disposable overlay required}"
+work="${RUNNER_TEMP:?}/zed-independent"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+mkdir "$work"
+mkdir "$work/dist" "$work/cache" "$work/logs"
+tag="v${version}"
+repo=https://github.com/zed-industries/zed.git
+checkout="$work/checkout"
+source_dir="$work/source/zed-${version}"
+archive="$work/dist/zed-${version}-overlay-crates.tar.xz"
+source_archive="$work/dist/zed-${version}.tar.gz"
+metadata="$work/dist/zed-${version}-overlay-crates.json"
+start_total=$SECONDS
+summary() { printf '%s\n' "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+timed() { local label="$1"; shift; local started=$SECONDS; "$@"; summary "$label: $((SECONDS - started))s"; }{% endraw %}{% endcapture %}
+{% capture final_full_source %}{% raw %}resolve_tag() {
+  local refs ref object direct= peeled=
+  refs="$(env -u GITHUB_TOKEN git ls-remote "$repo" "refs/tags/$tag" "refs/tags/$tag^{}")"
+  while read -r object ref; do
+    case "$ref" in
+      "refs/tags/$tag") direct="$object" ;;
+      "refs/tags/$tag^{}") peeled="$object" ;;
+      *) echo "Unexpected upstream tag reference" >&2; return 1 ;;
+    esac
+  done <<< "$refs"
+  [[ "$direct" =~ ^[0-9a-f]{40}$ ]]
+  [[ -z "$peeled" || "$peeled" =~ ^[0-9a-f]{40}$ ]]
+  printf '%s\n' "${peeled:-$direct}"
+}
+
+acquire_source() {
+  upstream_commit="$(resolve_tag)"
+  env -u GITHUB_TOKEN git clone --quiet --depth=1 --single-branch --no-tags --branch "$tag" "$repo" "$checkout"
+  test "$(git -C "$checkout" rev-parse HEAD)" = "$upstream_commit"
+  test "$(grep -Fc 'https://github.com/zed-industries/zed/archive/refs/tags/v${PV/_/-}.tar.gz -> ${P}.tar.gz' "$candidate")" = 1
+  env -u GITHUB_TOKEN curl -fsSL --retry 3 \
+    "https://github.com/zed-industries/zed/archive/refs/tags/${tag}.tar.gz" \
+    -o "$source_archive"
+  test "$(resolve_tag)" = "$upstream_commit"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/verify_zed_source.py" \
+    --archive "$source_archive" --checkout "$checkout" --commit "$upstream_commit" \
+    --root "zed-${version}"
+  mkdir "$work/source"
+  tar -xzf "$source_archive" -C "$work/source"
+  lock_hash="$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)"
+  source_hash="$(sha256sum "$source_archive" | cut -d' ' -f1)"
+  summary "Upstream tag: $tag; commit: $upstream_commit; source archive SHA256: $source_hash; Cargo.lock SHA256: $lock_hash"
+}{% endraw %}{% endcapture %}
+{% capture final_full_prepare %}{% raw %}prepare_portage() {
+  docker create --name zed-independent-portage "$GENTOO_PORTAGE_IMAGE" /bin/true > /dev/null
+}
+
+prepare_generator() {
+  python3 -m venv "$work/venv"
+  env -u GITHUB_TOKEN "$work/venv/bin/python" -m pip install 'pycargoebuild==0.16.0'
+  test "$("$work/venv/bin/python" -c 'import importlib.metadata; print(importlib.metadata.version("pycargoebuild"))')" = 0.16.0
+  docker run --rm --volumes-from zed-independent-portage --entrypoint cat "$GENTOO_STAGE3_IMAGE" /var/db/repos/gentoo/metadata/license-mapping.conf > "$work/license-mapping.conf"
+  test -s "$work/license-mapping.conf"
+  summary 'Generator: pycargoebuild 0.16.0'
+}
+
+cleanup() { docker rm -f zed-independent-portage >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+generate() {
+  local generator_start=$SECONDS
+  "$overlay/scripts/ci/run-pycargoebuild.sh" "$work/venv/bin/pycargoebuild" \
+    "$source_dir" "$archive" "$work/cache" "$work/license-mapping.conf" \
+    "$work/generated-zed.ebuild" "$work" 2>&1 | tee "$work/logs/generator.log"
+  summary "pycargoebuild download, repacking and metadata: $((SECONDS - generator_start))s"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/inspect_zed_archive.py" --archive "$archive" --lock "$source_dir/Cargo.lock" | tee -a "$GITHUB_STEP_SUMMARY"
+  grep -F 'Time elapsed during repacking:' "$work/logs/generator.log" | tee -a "$GITHUB_STEP_SUMMARY" || true
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" create \
+    --version "$version" --commit "$upstream_commit" --source "$source_dir" \
+    --source-archive "$source_archive" --lock "$source_dir/Cargo.lock" --archive "$archive" \
+    --generated "$work/generated-zed.ebuild" --cache "$work/cache" --output "$metadata"
+}
+
+reuse() {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_github.py" reuse \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --source "$source_dir" --archive "$archive" --metadata "$metadata" \
+    --cache "$work/cache" --generated "$work/generated-zed.ebuild"
+}{% endraw %}{% endcapture %}
+{% capture final_full_verify %}{% raw %}verify_inputs() {
+  test "$(sha256sum "$source_dir/Cargo.lock" | cut -d' ' -f1)" = "$lock_hash"
+  mkdir "$work/source-verify"
+  tar -xzf "$source_archive" -C "$work/source-verify"
+  diff -qr --no-dereference "$source_dir" "$work/source-verify/zed-${version}"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" identity \
+    --version "$version" --commit "$upstream_commit" --source-archive "$source_archive" \
+    --lock "$source_dir/Cargo.lock" --archive "$archive" --metadata "$metadata"
+  cp -n "$work/cache/"*.gh.tar.gz "$work/dist/"
+}
+
+sync_metadata() {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/sync_zed_git_crates.py" --candidate "$candidate" --generated "$work/generated-zed.ebuild" --source "$source_dir" --cache "$work/cache" | tee -a "$GITHUB_STEP_SUMMARY"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_distribution.py" rewrite-uri "$candidate"
+}{% endraw %}{% endcapture %}
+{% capture final_full_container %}{% raw %}validate_candidate() {
+  cp "$overlay/app-editors/zed/Manifest" "$work/original-Manifest"
+  docker run --rm --volumes-from zed-independent-portage \
+    --mount "type=bind,src=$overlay,dst=/overlay" \
+    --mount "type=bind,src=$work,dst=/experiment" \
+    --workdir /overlay \
+    --env CANDIDATE_VERSION="$version" \
+    --env EXPECTED_ARCHIVE_SHA256="$(sha256sum "$archive" | cut -d' ' -f1)" \
+    --env EXPECTED_SOURCE_SHA256="$source_hash" \
+    --env CANDIDATE_EBUILD="/overlay/${candidate#"$overlay"/}" \
+    --env CANDIDATE_PATCH="/overlay/${patch#"$overlay"/}" \
+    "$GENTOO_STAGE3_IMAGE" /bin/bash -euo pipefail -c '
+      mkdir -p /etc/portage/repos.conf /etc/portage/package.accept_keywords /etc/portage/package.use
+      printf "%s\n" "[DEFAULT]" "main-repo = gentoo" "[gentoo]" "location = /var/db/repos/gentoo" "auto-sync = no" "[zed-overlay]" "location = /overlay" "masters = gentoo" "auto-sync = no" > /etc/portage/repos.conf/zed-overlay.conf
+      printf "=app-editors/zed-%s::zed-overlay ~amd64\n" "$CANDIDATE_VERSION" > /etc/portage/package.accept_keywords/zed-candidate
+      printf "%s\n" "media-libs/vulkan-loader wayland" "media-video/pipewire sound-server" > /etc/portage/package.use/zed-validation
+      export DISTDIR=/experiment/dist
+      test "$(portageq envvar DISTDIR)" = "$DISTDIR"
+      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -
+      start=$SECONDS
+      ebuild "$CANDIDATE_EBUILD" manifest
+      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -
+      echo "Manifest generation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}.tar.gz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py preserve-manifest /experiment/original-Manifest /overlay/app-editors/zed/Manifest
+      start=$SECONDS
+      emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
+      echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+      start=$SECONDS
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_zed_cargo_snapshot.py --ebuild "$CANDIDATE_EBUILD" --source "/experiment/source/zed-${CANDIDATE_VERSION}"
+      patch --dry-run -p1 -d "/experiment/source/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"
+      echo "Snapshot and patch validation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+    ' 2>&1 | tee "$work/logs/portage.log"
+  cat "$work/logs/timing.txt" >> "$GITHUB_STEP_SUMMARY"
+}{% endraw %}{% endcapture %}
+{% capture final_full_main %}{% raw %}summary '## Independent crates preparation'
+timed 'Upstream source acquisition' acquire_source
+mode="$(PYTHONDONTWRITEBYTECODE=1 python3 "$overlay/scripts/crates_github.py" lookup --version "$version")"
+summary "Result: $mode"
+timed 'Portage environment preparation' prepare_portage
+case "$mode" in
+  generation)
+    timed 'Generator environment preparation' prepare_generator
+    timed 'Archive generation and validation' generate
+    ;;
+  reuse) timed 'Archive download and validation' reuse ;;
+  *) echo "ERROR: invalid archive selection" >&2; exit 1 ;;
+esac
+timed 'Metadata and source integrity validation' verify_inputs
+timed 'GIT_CRATES synchronization' sync_metadata
+timed 'Candidate validation' validate_candidate
+mkdir "$RUNNER_TEMP/crates-distribution"
+cp "$archive" "$metadata" "$RUNNER_TEMP/crates-distribution/"
+printf '%s\n' "$mode" > "$work/logs/result.txt"
+summary "Total independent preparation and validation: $((SECONDS - start_total))s"{% endraw %}{% endcapture %}
+{% capture final_hashes %}{% raw %}      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -{% endraw %}{% endcapture %}
+{% capture final_manifest_action %}{% raw %}      start=$SECONDS
+      ebuild "$CANDIDATE_EBUILD" manifest{% endraw %}{% endcapture %}
+{% capture final_rehash %}{% raw %}      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -{% endraw %}{% endcapture %}
+{% capture final_digest_calls %}{% raw %}      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}.tar.gz" --manifest /overlay/app-editors/zed/Manifest{% endraw %}{% endcapture %}
+{% capture final_verify_manifest %}{% raw %}def verify_manifest(archive: Path, manifest: Path) -> None:
+    records = [line.split() for line in manifest.read_text().splitlines()
+               if line.startswith(f'DIST {archive.name} ')]
+    if len(records) != 1:
+        raise ValueError('Manifest must contain exactly one generated archive record')
+    record = records[0]
+    if len(record) != 7 or int(record[2]) != archive.stat().st_size:
+        raise ValueError('Manifest size or digest fields are invalid')
+    checks = dict(zip(record[3::2], record[4::2]))
+    if set(checks) != {'BLAKE2B', 'SHA512'}:
+        raise ValueError('Manifest must contain BLAKE2B and SHA512 digests')
+    for name, expected in checks.items():
+        if digest(archive, name.lower()) != expected.lower():
+            raise ValueError(f'Manifest {name} mismatch')
+    print('Generated archive Manifest digests: OK'){% endraw %}{% endcapture %}
+{% capture final_inspect_cli %}{% raw %}def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--archive', type=Path, required=True)
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument('--lock', type=Path)
+    group.add_argument('--manifest', type=Path)
+    args = p.parse_args()
+    try:
+        if args.lock:
+            inspect(args.archive, args.lock)
+        else:
+            verify_manifest(args.archive, args.manifest)
+    except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as e:
+        print(f'Archive validation failed: {e}', file=sys.stderr)
+        return 1
+    return 0{% endraw %}{% endcapture %}
+{% capture final_real_manifest %}{% raw %}DIST zed-1.29.2-overlay-crates.tar.xz 130277868 BLAKE2B 232ed61c5748a59936106950694552921849387ee21a4cbcfce94893c819bf70d8b1aa42c0ca024a8d3108e448494159f24b8ed0652c7783e81c0f4a096221e2 SHA512 9e7b7e5a76ef401bed1223855e0fd58fae6aea61f098448273f855a719bc6c096b8c4c719f94a51d044bfb059c85d6bc2e1287546c6b8808979472e5116a2c87
+DIST zed-1.29.2.tar.gz 25733473 BLAKE2B 1eff191630783e2a73d9cae90b303749a3b123b4a708e64a4a786cee52dec30ea57996c2373d2a1b7032c8f66181c8275aca106134d0af0cdf45de57886e555d SHA512 ef8e6360c1935067ac6b1a893064f813a23c4641d64b97b39f3bb371d25591c3f7504f72afc9cbdb1fe18e00b233c9ff9d5d9ac71ab7b0e11653a711105c6aea{% endraw %}{% endcapture %}
+{% capture final_preserve_call %}{% raw %}      PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py preserve-manifest /experiment/original-Manifest /overlay/app-editors/zed/Manifest{% endraw %}{% endcapture %}
+{% capture final_records %}{% raw %}def manifest_records(path: Path) -> dict[str, str]:
+    records: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != 'DIST' or parts[1] in records:
+            raise ValueError('Malformed or duplicate Manifest entry')
+        records[parts[1]] = line
+    return records
+
+
+def preserve_manifest(before: Path, after: Path) -> None:
+    old, new = manifest_records(before), manifest_records(after)
+    for name, line in old.items():
+        if new.get(name) != line:
+            raise ValueError(f'Existing Manifest distfile changed: {name}'){% endraw %}{% endcapture %}
+{% capture final_preserve_cli %}{% raw %}                            Path(args.base_manifest), args.metadata_sha256)
+        else:
+            preserve_manifest(args.before, args.after)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, snapshot.CargoSnapshotError, release_handoff.HandoffError) as error:
+        print(f'Distribution validation failed: {error}', file=sys.stderr)
+        return 1
+    print(f'Distribution {args.action}: OK')
+    return 0{% endraw %}{% endcapture %}
+{% capture final_emerge_call %}{% raw %}      start=$SECONDS
+      emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
+      echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt{% endraw %}{% endcapture %}
+{% capture final_snapshot_call %}{% raw %}      PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_zed_cargo_snapshot.py --ebuild "$CANDIDATE_EBUILD" --source "/experiment/source/zed-${CANDIDATE_VERSION}"{% endraw %}{% endcapture %}
+{% capture final_snapshot_validate %}{% raw %}def validate(ebuild_path: Path, source_path: Path) -> None:
+    """Validate a candidate ebuild against one exact extracted upstream source tree."""
+    ebuild_text = read_text(ebuild_path)
+    webrtc_commit = parse_webrtc_commit(ebuild_text)
+    upstream_webrtc_version = parse_upstream_webrtc_version(source_path / "corgi.toml")
+    lock_crates = parse_lock(source_path / "Cargo.lock")
+    ebuild_crates = parse_git_crates(ebuild_text)
+    errors = compare_snapshots(lock_crates, ebuild_crates)
+    if webrtc_commit != upstream_webrtc_version:
+        errors.append(
+            "WEBRTC_COMMIT differs from upstream corgi.toml\n"
+            f"ebuild: {webrtc_commit}\n"
+            f"upstream: {upstream_webrtc_version}"
+        )
+
+    cargo_toml_path = source_path / "Cargo.toml"
+    validate_cargo_toml(cargo_toml_path)
+    cargo_toml = read_text(cargo_toml_path)
+    for substitution in parse_offline_substitutions(ebuild_text, ebuild_crates):
+        if substitution.declaration not in cargo_toml:
+            errors.append(
+                f"{substitution.crate}: expected offline Git declaration is absent from upstream Cargo.toml."
+            )
+    if errors:
+        raise CargoSnapshotError("\n".join(errors)){% endraw %}{% endcapture %}
+{% capture final_snapshot_diff %}{% raw %}def compare_snapshots(upstream: dict[str, GitCrate], ebuild: dict[str, GitCrate]) -> list[str]:
+    errors: list[str] = []
+    # Сверяем по имени crate, чтобы отдельно показать добавление или удаление
+    # зависимости, а также несовпадение URL репозитория или commit.
+    for name in sorted(upstream.keys() - ebuild.keys()):
+        errors.append(f"{name}: upstream Git dependency is missing from GIT_CRATES.")
+    for name in sorted(ebuild.keys() - upstream.keys()):
+        errors.append(f"{name}: GIT_CRATES entry is absent from upstream Cargo.lock.")
+    for name in sorted(upstream.keys() & ebuild.keys()):
+        upstream_crate = upstream[name]
+        ebuild_crate = ebuild[name]
+        if upstream_crate.repository != ebuild_crate.repository:
+            errors.append(
+                f"{name}: repository differs (upstream {upstream_crate.repository}, "
+                f"ebuild {ebuild_crate.repository})."
+            )
+        if upstream_crate.commit != ebuild_crate.commit:
+            errors.append(
+                f"{name}: revision differs (upstream {upstream_crate.commit}, "
+                f"ebuild {ebuild_crate.commit})."
+            )
+    return errors{% endraw %}{% endcapture %}
+{% capture final_offline_shape %}{% raw %}    substitutions: list[OfflineSubstitution] = []
+    for name, raw_declaration in variables.items():
+        if not name.endswith("_GIT"):
+            continue
+        stem = name.removesuffix("_GIT")
+        declaration = expand_variables(raw_declaration, variables, name)
+        match = GIT_DECLARATION.fullmatch(declaration)
+        if match is None:
+            raise CargoSnapshotError(f"Malformed offline Git declaration {name!r}.")
+        crate, repository, declared_commit = match.groups()
+        commit_variables = VARIABLE.findall(raw_declaration)
+        if not commit_variables:
+            commit_variable = f"{stem}_COMMIT"
+        elif len(commit_variables) == 1 and commit_variables[0].endswith("_COMMIT"):
+            commit_variable = commit_variables[0]
+        else:
+            raise CargoSnapshotError(f"Offline Git declaration {name!r} has no single commit variable.")
+        commit = variables.get(commit_variable)
+        if commit is None or not COMMIT.fullmatch(commit):
+            raise CargoSnapshotError(f"Malformed offline commit for {name!r}.")
+        if declared_commit is not None and declared_commit != commit:
+            raise CargoSnapshotError(f"Offline Git declaration {name!r} disagrees with its commit variable.")
+
+        path_variable = f"{stem}_PATH"
+        try:
+            path_declaration = expand_variables(
+                variables[path_variable], variables, path_variable, allow_external=True
+            )
+        except KeyError as error:
+            raise CargoSnapshotError(f"Missing offline path declaration {path_variable!r}.") from error
+        path_match = PATH_DECLARATION.fullmatch(path_declaration)
+        if path_match is None or path_match.group(1) != crate or commit not in path_match.group(2):
+            raise CargoSnapshotError(f"Malformed offline path declaration {path_variable!r}.")
+        substitutions.append(
+            OfflineSubstitution(crate, canonical_repository(repository), commit, declaration)
+        ){% endraw %}{% endcapture %}
+{% capture final_snapshot_cli %}{% raw %}def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ebuild", required=True, type=Path)
+    parser.add_argument("--source", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        validate(args.ebuild, args.source)
+    except CargoSnapshotError as error:
+        print(f"Cargo Git dependency snapshot: ERROR: {error}", file=sys.stderr)
+        return 1
+    print("Cargo Git dependency snapshot: OK")
+    return 0{% endraw %}{% endcapture %}
+{% capture final_webrtc_pin %}{% raw %}WEBRTC_COMMIT="0001d84-4"{% endraw %}{% endcapture %}
+{% capture final_patch_call %}{% raw %}      patch --dry-run -p1 -d "/experiment/source/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"{% endraw %}{% endcapture %}
+{% capture final_ebuild_patch %}{% raw %}PATCHES=( "${FILESDIR}/${P}-wayland-only.patch" ){% endraw %}{% endcapture %}
+{% capture final_timings %}{% raw %}      start=$SECONDS
+      ebuild "$CANDIDATE_EBUILD" manifest
+      printf "%s  %s\n" "$EXPECTED_ARCHIVE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" | sha256sum -c -
+      printf "%s  %s\n" "$EXPECTED_SOURCE_SHA256" "$DISTDIR/zed-${CANDIDATE_VERSION}.tar.gz" | sha256sum -c -
+      echo "Manifest generation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}-overlay-crates.tar.xz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/inspect_zed_archive.py --archive "/experiment/dist/zed-${CANDIDATE_VERSION}.tar.gz" --manifest /overlay/app-editors/zed/Manifest
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py preserve-manifest /experiment/original-Manifest /overlay/app-editors/zed/Manifest
+      start=$SECONDS
+      emerge -pv --oneshot "=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay"
+      echo "Portage dependency resolution: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt
+      start=$SECONDS
+      PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_zed_cargo_snapshot.py --ebuild "$CANDIDATE_EBUILD" --source "/experiment/source/zed-${CANDIDATE_VERSION}"
+      patch --dry-run -p1 -d "/experiment/source/zed-${CANDIDATE_VERSION}" < "$CANDIDATE_PATCH"
+      echo "Snapshot and patch validation: $((SECONDS-start))s" | tee -a /experiment/logs/timing.txt{% endraw %}{% endcapture %}
+{% capture final_outer_return %}{% raw %}    ' 2>&1 | tee "$work/logs/portage.log"
+  cat "$work/logs/timing.txt" >> "$GITHUB_STEP_SUMMARY"{% endraw %}{% endcapture %}
+{% capture final_result_copy %}{% raw %}timed 'Candidate validation' validate_candidate
+mkdir "$RUNNER_TEMP/crates-distribution"
+cp "$archive" "$metadata" "$RUNNER_TEMP/crates-distribution/"{% endraw %}{% endcapture %}
+{% capture final_mode_file %}{% raw %}printf '%s\n' "$mode" > "$work/logs/result.txt"{% endraw %}{% endcapture %}
+{% capture final_finish %}{% raw %}summary "Total independent preparation and validation: $((SECONDS - start_total))s"{% endraw %}{% endcapture %}
+{% capture final_parent_call %}{% raw %}  if grep -Fxq 'Result: new-release' "$prepare_log"; then
+    validate_candidate_paths "$before_paths"
+    "$disposable_workspace/scripts/ci/independent-crates.sh" \
+      "$candidate_version" "$disposable_workspace/$candidate_ebuild" \
+      "$disposable_workspace/$candidate_patch" "$disposable_workspace"
+    validate_manifest_update "$manifest_checksum"{% endraw %}{% endcapture %}
+{% capture final_parent_manifest %}{% raw %}validate_manifest_update() {
+  local manifest_checksum="$1"
+
+  if test ! -e .git; then
+    echo "Git-less workspace after container validation: OK"
+  else
+    echo "ERROR: disposable workspace gained .git" >&2
+    exit 1
+  fi
+
+  if test "$manifest_checksum" != "$(sha256sum app-editors/zed/Manifest)"; then
+    echo "Manifest update after container validation: OK"
+  else
+    echo "ERROR: app-editors/zed/Manifest was not updated by container validation" >&2
+    exit 1
+  fi
+}{% endraw %}{% endcapture %}
+{% capture final_parent_end %}{% raw %}  validate_disposable_policy "$disposable_workspace" "$tracked_paths"
+  assert_source_workspace_clean
+
+  if [ "$validation_mode" = true ]; then
+    echo "Total candidate preparation and validation: $((SECONDS - total_started))s" | tee -a "$GITHUB_STEP_SUMMARY"
+    echo "Validation-only: release handoff disabled"
+  elif grep -Fxq 'Result: new-release' "$prepare_log"; then
+    local archive_mode
+    archive_mode="$(cat "$RUNNER_TEMP/zed-independent/logs/result.txt")"
+    case "$archive_mode" in generation|reuse) ;; *) echo "Invalid archive mode" >&2; exit 1 ;; esac
+    echo "archive_mode=$archive_mode" >> "$GITHUB_OUTPUT"
+    create_release_handoff
+  fi{% endraw %}{% endcapture %}
+{% capture final_parent_handoff %}{% raw %}create_release_handoff() {
+  local handoff_directory="$RUNNER_TEMP/release-handoff"
+  local metadata_hash
+
+  PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_handoff.py \
+    --create-handoff "$handoff_directory" \
+    --candidate-version "$candidate_version" \
+    --base-commit "$GITHUB_SHA"
+  metadata_hash="$(sha256sum "$RUNNER_TEMP/crates-distribution/zed-${candidate_version}-overlay-crates.json" | cut -d' ' -f1)"
+  [[ "$metadata_hash" =~ ^[0-9a-f]{64}$ ]]
+  PYTHONDONTWRITEBYTECODE=1 python3 scripts/crates_distribution.py bundle \
+    --bundle "$RUNNER_TEMP/crates-distribution" --handoff "$handoff_directory" \
+    --base-commit "$GITHUB_SHA" --base-manifest "$GITHUB_WORKSPACE/app-editors/zed/Manifest" \
+    --metadata-sha256 "$metadata_hash"
+  echo "Sanitized release handoff and distribution bundle: OK"
+  echo "Metadata SHA256: $metadata_hash" | tee -a "$GITHUB_STEP_SUMMARY"
+  echo "metadata_sha256=$metadata_hash" >> "$GITHUB_OUTPUT"
+  echo "handoff_ready=true" >> "$GITHUB_OUTPUT"
+}{% endraw %}{% endcapture %}
+{% capture final_workflow_upload %}{% raw %}      # Между jobs передаём только handoff с ограниченным списком файлов;
+      # временный workspace и остальные результаты проверки остаются внутри job.
+      - name: Upload release handoff
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-handoff
+          path: ${{ runner.temp }}/release-handoff
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload crates distribution bundle
+        if: steps.prepare-and-validate.outputs.handoff_ready == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.independent_validation)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: crates-distribution
+          path: ${{ runner.temp }}/crates-distribution
+          if-no-files-found: error
+          retention-days: 14{% endraw %}{% endcapture %}
+
+## 4.53. От конфигурации Portage к проверке архивов {#final-archive-boundary}
+
+К этому моменту внутренний Bash настроил репозитории и сверил эффективное значение `DISTDIR` с `/experiment/dist`. Теперь он впервые читает оба архива внутри контейнера. Сначала проверяет registry crates на строке 129, затем исходники Zed на строке 130. Только после двух успешных проверок начинается работа с Manifest.
+
+{% include source-preview.html source=final_hashes label="Первые проверки архивов · строки 129–130" path="scripts/ci/independent-crates.sh" revision=revision start=129 open=true %}
+
+У ожидаемых значений разные точки отсчёта. Внешний Bash вычисляет `EXPECTED_ARCHIVE_SHA256` на строке 118 при построении аргументов Docker. Для `EXPECTED_SOURCE_SHA256` он берёт `source_hash`, сохранённый на строке 54 после проверки и распаковки исходников. Это отпечатки ранее прочитанных файлов. Подлинность исходного дерева проверялась отдельно через [сопоставление с Git commit tree](#tree-verification). Сами SHA-256 здесь не являются подписями.
+
+## 4.54. Проверяем SHA256 через sha256sum -c {#final-sha256}
+
+В шаблоне `"%s  %s\n"` первый `%s` подставляет ожидаемый хеш, второй — имя файла. Между полями два пробела. Первый отделяет хеш, второй служит маркером текстового режима в формате GNU checksum. `\n` завершает запись. Кавычки вокруг значения пути сохраняют его одним аргументом `printf`.
+
+Конвейер передаёт строку в стандартный ввод `sha256sum`. Флаг `-c` включает сверку, а аргумент `-` велит читать список контрольных сумм из stdin. Команда открывает указанный в записи файл, сама вычисляет его SHA-256 и сравнивает результат. Несовпадение, отсутствие файла, ошибка чтения или единственная некорректная строка дают ненулевой статус. С `pipefail` ошибка любого звена становится ошибкой конвейера. С `errexit` внутренний Bash пропускает оставшиеся команды. Код и сообщения ниже получены на коротких учебных файлах.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_hashes label="Первые проверки архивов · строки 129–130" path="scripts/ci/independent-crates.sh" revision=revision start=129 %}
+{% include source-preview.html source=final_manifest_action label="Старт замера и генерация Manifest · строки 131–132" path="scripts/ci/independent-crates.sh" revision=revision start=131 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-checksums" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.55. Запускаем ebuild manifest {#final-manifest-generation}
+
+{% include source-preview.html source=final_manifest_action label="Старт замера и генерация Manifest · строки 131–132" path="scripts/ci/independent-crates.sh" revision=revision start=131 open=true %}
+
+`start=$SECONDS` сохраняет текущий счётчик перед операцией. Команда `ebuild` получает путь `$CANDIDATE_EBUILD` внутри `/overlay` и действие `manifest`. Portage читает ebuild в настроенных [репозиториях](#portage-repos-conf) и обновляет Manifest пакета с учётом файлов, перечисленных через `SRC_URI`. Подготовленные архивы уже лежат в эффективном `DISTDIR`. Если нужного файла нет и Portage не может получить его или использовать имеющуюся запись согласно настройкам, действие завершается ошибкой. [Справка Portage по ebuild](https://github.com/gentoo/portage/blob/master/man/ebuild.1).
+
+Сохранённый `/experiment/original-Manifest` — отдельный файл. Запись в `/overlay/app-editors/zed/Manifest` через bind mount видна в одноразовой копии на хосте. При ошибке Bash останавливает проверки. Изменения, которые команда успела записать в рабочую копию, не откатываются. Лаборатория показывает возможные состояния рабочей копии. Успешный `ebuild manifest` означает создание записей для проверки файлов. Сборка, установка и запуск Zed здесь не выполняются. [Жизненный цикл Manifest в родительском скрипте]({{ previous }}#manifest-lifecycle).
+
+{% capture final_previews %}
+{% include source-preview.html source=final_manifest_action label="Старт замера и генерация Manifest · строки 131–132" path="scripts/ci/independent-crates.sh" revision=revision start=131 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-manifest-life" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.56. Почему после Manifest снова проверяем архивы? {#final-recheck}
+
+{% include source-preview.html source=final_rehash label="Повторная проверка · строки 133–134" path="scripts/ci/independent-crates.sh" revision=revision start=133 open=true %}
+
+Порядок команд такой: первые SHA-256 → `ebuild manifest` → повторные SHA-256. Строки 133–134 используют те же ожидаемые значения и те же пути. Если операция изменила один из архивов, Manifest мог уже получить запись на основе новых байтов, но прежний отпечаток обнаружит изменение. При отказе `ebuild` обе повторные проверки пропускаются.
+
+Проверка относится к байтам, прочитанным в этот момент. Файлы могут измениться позже, а происхождение архива устанавливается отдельными проверками.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_hashes label="Первые проверки архивов · строки 129–130" path="scripts/ci/independent-crates.sh" revision=revision start=129 %}
+{% include source-preview.html source=final_manifest_action label="Старт замера и генерация Manifest · строки 131–132" path="scripts/ci/independent-crates.sh" revision=revision start=131 %}
+{% include source-preview.html source=final_rehash label="Повторная проверка · строки 133–134" path="scripts/ci/independent-crates.sh" revision=revision start=133 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-recheck" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.57. Сверяем Manifest с содержимым distfiles {#final-manifest-digests}
+
+{% include source-preview.html source=final_digest_calls label="Два вызова инспектора · строки 136–137" path="scripts/ci/independent-crates.sh" revision=revision start=136 open=true %}
+{% include source-preview.html source=final_verify_manifest label="Поиск записи и пересчёт дайджестов · строки 53–67" path="scripts/inspect_zed_archive.py" revision=revision start=53 %}
+{% include source-preview.html source=final_inspect_cli label="Выбор режима и код возврата · строки 70–85" path="scripts/inspect_zed_archive.py" revision=revision start=70 %}
+
+`inspect_zed_archive.py` принимает один из двух режимов. В [`--lock`](#registry-inspection) он читает registry crates внутри архива и сопоставляет их с `Cargo.lock`. В `--manifest` он работает с байтами указанного файла, без разбора содержащихся в нём crates. Сначала передаётся crates-архив из `/experiment/dist`, затем архив исходников из того же каталога. Оба вызова читают `/overlay/app-editors/zed/Manifest`.
+
+`verify_manifest()` ищет ровно одну строку, начинающуюся с `DIST` и точного имени файла. После разбиения проверяет семь полей и размер в байтах. Затем набор имён алгоритмов должен состоять из `BLAKE2B` и `SHA512`. Функция читает файл для каждого алгоритма по порядку пар в записи и сравнивает шестнадцатеричные значения без учёта регистра. Ошибка чтения или первое расхождение завершают вызов с кодом 1.
+
+Обычная запись выглядит как `DIST filename size BLAKE2B digest SHA512 digest`. Ниже две записи из реального Manifest. Лаборатория использует отдельный учебный архив с настоящими дайджестами его содержимого.
+
+{% include source-preview.html source=final_real_manifest label="Manifest пакета Zed 1.29.2 · строки 54–55" path="app-editors/zed/Manifest" revision=packaged_revision start=54 %}
+
+{% capture final_previews %}
+{% include source-preview.html source=final_digest_calls label="Два вызова инспектора · строки 136–137" path="scripts/ci/independent-crates.sh" revision=revision start=136 %}
+{% include source-preview.html source=final_verify_manifest label="Поиск записи и пересчёт дайджестов · строки 53–67" path="scripts/inspect_zed_archive.py" revision=revision start=53 %}
+{% include source-preview.html source=final_inspect_cli label="Выбор режима и код возврата · строки 70–85" path="scripts/inspect_zed_archive.py" revision=revision start=70 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-manifest-record" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.58. Сохраняем прежние DIST-записи {#final-manifest-preservation}
+
+{% include source-preview.html source=final_preserve_call label="Сравнение с сохранённым Manifest · строка 138" path="scripts/ci/independent-crates.sh" revision=revision start=138 open=true %}
+{% include source-preview.html source=final_records label="Разбор и сохранность DIST-записей · строки 165–179" path="scripts/crates_distribution.py" revision=revision start=165 %}
+{% include source-preview.html source=final_preserve_cli label="Возврат ошибки и сообщение об успехе · строки 237–244" path="scripts/crates_distribution.py" revision=revision start=237 %}
+
+`manifest_records()` строит словарь «имя файла → исходная строка». В поддерживаемом здесь DIST-only формате строка должна иметь тип `DIST` и имя, причём повторять имя нельзя. Проверка формы ограничивается этими условиями. Новый уникальный `DIST` с именем парсер сам по себе примет даже без размера и дайджестов. Задачу проверки полей конкретных архивов выполняют предыдущие вызовы `verify_manifest()`.
+
+`preserve_manifest()` сначала разбирает оба файла. Затем сверяет каждую прежнюю строку целиком, включая порядок полей и пробелы. Удалённая запись и запись с изменённым содержимым дают одну диагностику. Новые уникальные записи допустимы, а перестановка прежних строк сама по себе не меняет результат. Поэтому целые файлы могут различаться. При успехе CLI выводит `Distribution preserve-manifest: OK`.
+
+Два шага отвечают на разные вопросы. У проверяемых архивов есть записи с верными размерами и хешами. У файлов из исходного Manifest сохранились прежние записи. Обе проверки выполняются до разрешения зависимостей.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_preserve_call label="Сравнение с сохранённым Manifest · строка 138" path="scripts/ci/independent-crates.sh" revision=revision start=138 %}
+{% include source-preview.html source=final_records label="Разбор и сохранность DIST-записей · строки 165–179" path="scripts/crates_distribution.py" revision=revision start=165 %}
+{% include source-preview.html source=final_preserve_cli label="Возврат ошибки и сообщение об успехе · строки 237–244" path="scripts/crates_distribution.py" revision=revision start=237 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-preserve" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.59. Проверяем разрешение зависимостей через emerge {#final-emerge}
+
+{% include source-preview.html source=final_emerge_call label="Разрешение и запись времени · строки 139–141" path="scripts/ci/independent-crates.sh" revision=revision start=139 open=true %}
+
+`emerge -pv --oneshot` строит план для точного атома `=app-editors/zed-${CANDIDATE_VERSION}::zed-overlay`. Репозиторий выбирается через `::zed-overlay`. Portage использует [временные настройки](#portage-keywords-use) для этого ebuild с `~amd64` и заданные для зависимостей USE-флаги. `-p` (`--pretend`) показывает, что было бы установлено. `-v` добавляет подробности, в том числе USE-флаги плана. `--oneshot` при реальной установке исключает добавление пакета в world. Здесь pretend не устанавливает пакеты и не меняет world. [Справка Portage по emerge](https://github.com/gentoo/portage/blob/master/man/emerge.1).
+
+Успешное разрешение относится к этому дереву репозиториев, профилю и настройкам. Доступность удалённых файлов, полная офлайн-сборка Cargo, компиляция и запуск по Wayland требуют других проверок. В лаборатории показаны условные ответы Portage. При отказе `emerge` внутренняя оболочка сохраняет уже записанные замеры, но пропускает строку 141 и проверку Cargo.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_emerge_call label="Разрешение и запись времени · строки 139–141" path="scripts/ci/independent-crates.sh" revision=revision start=139 %}
+{% include source-preview.html source=final_snapshot_call label="Запуск проверки Cargo · строка 143" path="scripts/ci/independent-crates.sh" revision=revision start=143 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-emerge" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.60. Повторно проверяем Cargo Git snapshot {#final-cargo-snapshot}
+
+{% include source-preview.html source=final_snapshot_call label="Запуск проверки Cargo · строка 143" path="scripts/ci/independent-crates.sh" revision=revision start=143 open=true %}
+{% include source-preview.html source=final_snapshot_validate label="Сверка с извлечённым деревом · строки 285–309" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=285 %}
+{% include source-preview.html source=final_snapshot_diff label="Сравнение Git-зависимостей · строки 261–282" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=261 %}
+{% include source-preview.html source=final_offline_shape label="Разбор поддерживаемых подстановок · строки 222–257" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=222 %}
+{% include source-preview.html source=final_snapshot_cli label="Диагностика и коды возврата · строки 312–324" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=312 trailing_blank=true %}
+{% include source-preview.html source=final_webrtc_pin label="Закреплённое значение WebRTC в ebuild 1.29.2 · строка 103" path="app-editors/zed/zed-1.29.2.ebuild" revision=packaged_revision start=103 %}
+
+В [синхронизации](#replace-git-block) та же функция уже проверяла временный ebuild перед заменой файла. Теперь входом служит кандидат в контейнере после обновления `GIT_CRATES` и `SRC_URI`. Второй вход — извлечённое дерево `/experiment/source/zed-${CANDIDATE_VERSION}`. Проверка сопоставляет имена Git-зависимостей из `Cargo.lock` с `GIT_CRATES`, затем репозиторий и ревизию для совпавших имён. `WEBRTC_COMMIT` сверяется с версией из `corgi.toml`.
+
+Для [поддерживаемых локальных подстановок](#curated-offline-substitutions) проверяется форма Git-, commit- и path-объявлений, а ожидаемое Git-объявление должно встречаться в исходном `Cargo.toml`. Сравнение может собрать несколько расхождений. Ошибка разбора подстановки прерывает текущую проверку сразу. При успехе CLI печатает `Cargo Git dependency snapshot: OK` и Bash переходит к patch dry-run. Полную офлайн-сборку Cargo эта команда не выполняет.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_snapshot_call label="Запуск проверки Cargo · строка 143" path="scripts/ci/independent-crates.sh" revision=revision start=143 %}
+{% include source-preview.html source=final_snapshot_validate label="Сверка с извлечённым деревом · строки 285–309" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=285 %}
+{% include source-preview.html source=final_snapshot_diff label="Сравнение Git-зависимостей · строки 261–282" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=261 %}
+{% include source-preview.html source=final_offline_shape label="Разбор поддерживаемых подстановок · строки 222–257" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=222 %}
+{% include source-preview.html source=final_snapshot_cli label="Диагностика и коды возврата · строки 312–324" path="scripts/check_zed_cargo_snapshot.py" revision=revision start=312 trailing_blank=true %}
+{% include source-preview.html source=final_patch_call label="Пробное применение Wayland-патча · строка 144" path="scripts/ci/independent-crates.sh" revision=revision start=144 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-cargo" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.61. Выполняем Wayland patch dry-run {#final-wayland-patch}
+
+{% include source-preview.html source=final_patch_call label="Пробное применение Wayland-патча · строка 144" path="scripts/ci/independent-crates.sh" revision=revision start=144 open=true %}
+{% include source-preview.html source=final_ebuild_patch label="Путь патча в реальном ebuild 1.29.2 · строка 169" path="app-editors/zed/zed-1.29.2.ebuild" revision=packaged_revision start=169 %}
+
+Bash открывает `$CANDIDATE_PATCH` через `<` и передаёт содержимое в stdin команды `patch`. Патч читается из подключённого overlay. Флаг `-d` задаёт корень извлечённого дерева исходников, а `-p1` убирает первый компонент пути из путей в заголовках diff. Например, `a/example.txt` становится `example.txt` относительно этого корня. `--dry-run` проверяет применимость без записи изменений в целевые файлы.
+
+Лаборатория использует небольшой unified diff и локальные файлы. Неверный strip level показан на заголовке без ожидаемого префикса. Если входной файл отсутствует, ошибка перенаправления возникает ещё до запуска `patch`. Успех dry-run подтверждает применимость патча к этому дереву при данных параметрах. Для компиляции и запуска Wayland требуются отдельные проверки.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_patch_call label="Пробное применение Wayland-патча · строка 144" path="scripts/ci/independent-crates.sh" revision=revision start=144 %}
+{% include source-preview.html source=final_timings label="Интервалы и три записи времени · строки 131–145" path="scripts/ci/independent-crates.sh" revision=revision start=131 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-patch" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.62. Собираем результаты измерений времени {#final-validation-timing}
+
+{% include source-preview.html source=final_timings label="Интервалы и три записи времени · строки 131–145" path="scripts/ci/independent-crates.sh" revision=revision start=131 open=true %}
+
+Каждое `start=$SECONDS` начинает самостоятельный интервал. Как в [4.4](#timing), арифметическое раскрытие подставляет разницу счётчиков. Здесь `tee -a` дописывает строку в `/experiment/logs/timing.txt` и одновременно отправляет её в stdout.
+
+- `Manifest generation` включает `ebuild manifest` и обе повторные проверки SHA-256. Две проверки записей Manifest и сохранность прежних DIST идут уже после этой строки.
+- `Portage dependency resolution` измеряет `emerge -pv --oneshot`.
+- `Snapshot and patch validation` охватывает Python-проверку и dry-run патча.
+
+Если команда завершилась ошибкой до своего `echo`, соответствующая строка целиком пропускается. Предыдущие замеры могут остаться в файле.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_timings label="Интервалы и три записи времени · строки 131–145" path="scripts/ci/independent-crates.sh" revision=revision start=131 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-timing" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.63. Возвращаемся из Docker во внешний Bash {#final-docker-return}
+
+{% include source-preview.html source=final_outer_return label="Журнал на runner и перенос замеров · строки 146–147" path="scripts/ci/independent-crates.sh" revision=revision start=146 open=true %}
+
+После закрывающей кавычки снова работают операции внешнего Bash. Как в [4.51](#portage-log-timing), stdout и stderr Docker через `2>&1` попадают в `tee`, а затем в `portage.log` и журнал runner. Файл замеров идёт другим путём: контейнер пишет в `/experiment/logs/timing.txt`, bind mount открывает тот же файл по `$work/logs/timing.txt`, а `cat` дописывает его в `$GITHUB_STEP_SUMMARY`.
+
+При сбое Docker или `tee` срабатывает `pipefail`, и строка 147 пропускается. Если конвейер прошёл, Bash сначала открывает файл сводки для дозаписи. При ошибке открытия `cat` ещё не запущен. Если сводка открылась, но `cat` не может прочитать файл времени или записать данные в уже открытый поток, команда возвращает ошибку. Журнал и следы предыдущих записей при этом могут сохраниться.
+
+Создание каталога результата требует успешного завершения всей `validate_candidate()` и последующей записи времени обёрткой `timed`. Ни сбой этих операций, ни `--rm` не откатывают файлы одноразового overlay.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_outer_return label="Журнал на runner и перенос замеров · строки 146–147" path="scripts/ci/independent-crates.sh" revision=revision start=146 %}
+{% include source-preview.html source=final_result_copy label="Проверка кандидата и копирование результата · строки 165–167" path="scripts/ci/independent-crates.sh" revision=revision start=165 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-docker" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.64. Формируем crates-distribution {#final-distribution}
+
+{% include source-preview.html source=final_result_copy label="Проверка кандидата и копирование результата · строки 165–167" path="scripts/ci/independent-crates.sh" revision=revision start=165 open=true %}
+
+`timed` вызывает `validate_candidate()` и после успеха записывает общее время этой функции. Затем `mkdir` создаёт `$RUNNER_TEMP/crates-distribution`. Без `-p` уже существующий каталог считается ошибкой. `cp` получает два явных источника и один каталог назначения. Если одна из копий завершится ошибкой, `cp` вернёт ненулевой статус. Другая копия могла успеть записаться, а уже созданный каталог останется.
+
+После успешного копирования в каталоге два файла: архив registry crates и JSON метаданных. В лаборатории показана условная версия 1.29.0. Архив upstream, Git-кеш, ebuild и patch остаются в своих рабочих каталогах. Родитель отдельно собирает и проверяет release handoff.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_result_copy label="Проверка кандидата и копирование результата · строки 165–167" path="scripts/ci/independent-crates.sh" revision=revision start=165 %}
+{% include source-preview.html source=final_mode_file label="Запись режима · строка 168" path="scripts/ci/independent-crates.sh" revision=revision start=168 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-distribution" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.65. Записываем generation или reuse в result.txt {#final-result-file}
+
+{% include source-preview.html source=final_mode_file label="Запись режима · строка 168" path="scripts/ci/independent-crates.sh" revision=revision start=168 open=true %}
+
+К моменту копирования `mode` уже выбран и проверен веткой `case`. `printf '%s\n'` печатает значение с одним переводом строки. Перенаправление `>` создаёт файл или обнуляет существующий перед записью. Если копирование завершилось ошибкой, Bash пропускает строку 168. Если открытие файла не удалось, `printf` не начнёт запись.
+
+Локальная переменная дочернего Bash не переходит к родителю. В ветке, где разрешён handoff, родитель читает `$RUNNER_TEMP/zed-independent/logs/result.txt`, проверяет допустимые значения и только затем пишет `archive_mode` в `GITHUB_OUTPUT`. [Передача режима в родительском скрипте]({{ previous }}#archive-mode-transfer).
+
+{% capture final_previews %}
+{% include source-preview.html source=final_result_copy label="Проверка кандидата и копирование результата · строки 165–167" path="scripts/ci/independent-crates.sh" revision=revision start=165 %}
+{% include source-preview.html source=final_mode_file label="Запись режима · строка 168" path="scripts/ci/independent-crates.sh" revision=revision start=168 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-mode" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.66. Завершаем скрипт и выполняем cleanup {#final-exit}
+
+{% include source-preview.html source=final_finish label="Итоговая сводка · строка 169" path="scripts/ci/independent-crates.sh" revision=revision start=169 open=true %}
+
+`start_total` сохранён на строке 20. В конце разница с `SECONDS` даёт длительность всей независимой подготовки и валидации. Обёртка `summary` отправляет строку и в stdout, и в сводку через `tee -a`. Режим на строке 168 записан раньше, поэтому даже при ошибке итоговой сводки оба файла результата и `result.txt` могут уже существовать. Родитель проверяет успешность вызова по статусу, прежде чем читать результат.
+
+При выходе работает зарегистрированный на строке 72 [`EXIT` trap](#cleanup). Он пытается удалить контейнер-донор через `docker rm -f`. Вывод подавлен, а `|| true` поглощает отказ удаления. Если остальная работа прошла успешно, родитель получает 0 даже при отказе cleanup. При более ранней ошибке сохраняется исходный ненулевой статус. Файлового отката здесь нет.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_helpers label="Общий счётчик и обёртки · строки 20–22" path="scripts/ci/independent-crates.sh" revision=revision start=20 %}
+{% include source-preview.html source=final_trap_lines label="Удаление донора при выходе · строки 71–72" path="scripts/ci/independent-crates.sh" revision=revision start=71 %}
+{% include source-preview.html source=final_outer_return label="Журнал на runner и перенос замеров · строки 146–147" path="scripts/ci/independent-crates.sh" revision=revision start=146 %}
+{% include source-preview.html source=final_result_copy label="Проверка кандидата и копирование результата · строки 165–167" path="scripts/ci/independent-crates.sh" revision=revision start=165 %}
+{% include source-preview.html source=final_mode_file label="Запись режима · строка 168" path="scripts/ci/independent-crates.sh" revision=revision start=168 %}
+{% include source-preview.html source=final_finish label="Итоговая сводка · строка 169" path="scripts/ci/independent-crates.sh" revision=revision start=169 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-boundary" data=site.data.final_validation_labs previews=final_previews %}
+
+## 4.67. Полный путь independent-crates.sh {#final-script-map}
+
+1. [Запуск](#arguments) проверяет входы, создаёт рабочие каталоги, определяет функции замеров и регистрирует обработчик выхода.
+2. [Получение исходников](#revision) фиксирует тег и commit, проверяет checkout, скачивает архив, сопоставляет его дерево с Git и запоминает SHA-256.
+3. [Подготовка crates](#archive-mode) определяет режим и создаёт донор Portage. Затем скрипт [генерирует или переиспользует](#preparation-branch) архив и его метаданные.
+4. [Общие проверки](#common-integrity) сверяют Cargo.lock, восстановленное дерево и identity метаданных, затем копируют Git-архивы в distfiles.
+5. [Синхронизация](#metadata-synchronization-flow) обновляет GIT_CRATES, проверяет ручные подстановки и WebRTC pin, выводит различия лицензий и переписывает crates URI.
+6. [Контейнерная проверка](#portage-candidate) подключает рабочие каталоги, настраивает Portage, сверяет архивы и Manifest, разрешает зависимости, проверяет Cargo snapshot и применимость патча.
+7. [Завершение](#final-distribution) переносит замеры, собирает локальную пару файлов и записывает режим. При выходе скрипт пытается удалить контейнер-донор и возвращает статус родителю.
+
+У каждого сценария в карте свой первый отказ. PASS отмечает пройденный этап, FAIL — сбой, SKIP — пропущенный этап. Удаление донора, если обработчик уже установлен, выполняется и после ошибки. В модели статусы конкретных отказов приведены для указанных примеров. Локальный успех оставляет файлы для следующего шага workflow.
+
+{% capture final_previews %}
+{% include source-preview.html source=final_full_start label="Запуск и обёртки · строки 1–23" path="scripts/ci/independent-crates.sh" revision=revision start=1 trailing_blank=true %}
+{% include source-preview.html source=final_full_source label="Определение и получение исходников · строки 24–57" path="scripts/ci/independent-crates.sh" revision=revision start=24 trailing_blank=true %}
+{% include source-preview.html source=final_full_prepare label="Подготовка Portage и crates · строки 58–94" path="scripts/ci/independent-crates.sh" revision=revision start=58 trailing_blank=true %}
+{% include source-preview.html source=final_full_verify label="Общие проверки и синхронизация · строки 95–110" path="scripts/ci/independent-crates.sh" revision=revision start=95 trailing_blank=true %}
+{% include source-preview.html source=final_full_container label="Проверка кандидата в stage3 · строки 111–149" path="scripts/ci/independent-crates.sh" revision=revision start=111 trailing_blank=true %}
+{% include source-preview.html source=final_full_main label="Порядок вызовов и результаты · строки 150–169" path="scripts/ci/independent-crates.sh" revision=revision start=150 %}
+{% endcapture %}
+{% include integrity-lab.html lab="final-full" data=site.data.final_validation_labs previews=final_previews %}
+
+### Что получает родительский скрипт
+
+До запуска дочернего скрипта родитель находит и проверяет файлы кандидата. После успешного возврата он проверяет, что в одноразовой копии не появилась `.git` и что контрольная строка Manifest изменилась. Затем проверяет политику overlay и чистоту исходного checkout. В режиме validation-only цепочка заканчивается без handoff. В разрешённой ветке нового релиза родитель читает режим и собирает [release handoff]({{ previous }}#construct-handoff) из ebuild, патча, Manifest и `release.json`. После сверки с distribution bundle он выставляет `handoff_ready` после проверок.
+
+{% include source-preview.html source=final_parent_call label="Проверка путей, вызов и проверка Manifest · строки 142–147" path="scripts/ci/validate-release-candidate.sh" revision=revision start=142 %}
+{% include source-preview.html source=final_parent_manifest label="Две проверки после контейнера · строки 39–55" path="scripts/ci/validate-release-candidate.sh" revision=revision start=39 %}
+{% include source-preview.html source=final_parent_end label="Политика, чистота checkout и ветка handoff · строки 157–169" path="scripts/ci/validate-release-candidate.sh" revision=revision start=157 %}
+{% include source-preview.html source=final_parent_handoff label="Построение и проверка handoff · строки 91–109" path="scripts/ci/validate-release-candidate.sh" revision=revision start=91 %}
+
+Workflow передаёт выбранные файлы между заданиями через два артефакта. Отдельное задание снова проверяет handoff. Позднее задание с правами записи применяет handoff, публикует новый crates release или проверяет уже опубликованный и открывает Draft PR. Ручная приёмка Gentoo включает полную сборку, проверку линковки и запуск Zed по Wayland.
+
+{% include source-preview.html source=final_workflow_upload label="Два артефакта для следующих заданий · строки 71–89" path=".github/workflows/zed-release-watcher.yml" revision=revision start=71 %}
+
+Следующий скрипт главы — [`publish-release-pr.sh`](https://github.com/vovanbl411/zed-overlay/blob/760062230c6f8647aa9bc3eafc0c0e47e5978ca3/scripts/ci/publish-release-pr.sh).

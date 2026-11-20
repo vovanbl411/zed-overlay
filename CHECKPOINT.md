@@ -31,8 +31,12 @@ Iris Xe Vulkan adapter and reached `Authenticated`.
 
 ### Current package
 
-Zed 1.28.1 is the current packaged version. [PR #46](https://github.com/vovanbl411/zed-overlay/pull/46)
-merged `app-editors/zed/zed-1.28.1.ebuild` into `main`. Automation has confirmed:
+Zed 1.29.2 is the current packaged version. [PR #51](https://github.com/vovanbl411/zed-overlay/pull/51)
+merged `app-editors/zed/zed-1.29.2.ebuild` into `main`. Manual build, linkage,
+and runtime verification for 1.29.2 remain open.
+
+[PR #46](https://github.com/vovanbl411/zed-overlay/pull/46) packaged Zed 1.28.1.
+The automation for that release confirmed:
 
 - stable release discovery and deterministic candidate preparation;
 - Manifest generation and `emerge -pv` dependency resolution;
@@ -97,7 +101,7 @@ post-sync hook to refresh the external cache automatically; it does not put
 ## Current next step
 
 Release automation through Stage 2 is complete. Manual Gentoo acceptance for
-Zed 1.28.1 remains pending.
+Zed 1.29.2 remains pending.
 
 Chapter 01 and the full YAML walkthrough (workflow lines 1–240, all three
 jobs) are integrated into `main`. The walkthrough passed source accuracy
@@ -121,8 +125,10 @@ It was accepted and integrated into `main` in PR #52. Phase 4.3 corrected the
 metadata provenance source highlights and covered input integrity and metadata
 synchronization. It was accepted and merged into `main` in PR #53.
 
-Phase 4.4 covers the stage3 invocation, temporary Portage configuration, and
-the handoff to the first archive checksum check. It is implemented and awaits
-owner review. Phase 4.5 will cover the remaining candidate validation,
-including the Portage Manifest, dependency resolution, Cargo snapshot,
-Wayland patch checks, and completion.
+Phase 4.4 covered the stage3 invocation and temporary Portage configuration.
+It was accepted and merged into `main` in PR #54.
+
+Phase 4.5 covers archive and Manifest checks, dependency resolution, the
+Cargo snapshot, the Wayland patch dry-run, and the files returned to the
+parent script. The complete `independent-crates.sh` walkthrough is ready
+for final owner review. The next Bash script is `publish-release-pr.sh`.
