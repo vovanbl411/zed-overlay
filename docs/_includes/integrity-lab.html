@@ -1,0 +1,17 @@
+{% assign lab = site.data.integrity_labs[include.lab] %}
+{% assign initial_case = lab.cases.first %}
+{% capture integrity_diagram %}
+<div class="integrity-panels integrity-{{ lab.layout }}">
+  {% for label in lab.panels %}
+  <div class="workspace{% if forloop.last and lab.layout == 'flow' %} integrity-output{% endif %}">
+    <strong>{{ label | escape }}</strong>
+    <pre data-integrity-panel>{{ initial_case.values[forloop.index0] | escape }}</pre>
+  </div>
+  {% endfor %}
+</div>
+<script type="application/json" data-integrity-cases>{{ lab.cases | jsonify }}</script>
+{% endcapture %}
+{% assign lab_options = lab.cases | map: 'label' | join: '|' %}
+{% assign lab_gates = nil %}
+{% if lab.gates.size > 0 %}{% assign lab_gates = lab.gates | join: '|' %}{% endif %}
+{% include crates-lab.html lab=include.lab title=lab.title options=lab_options gates=lab_gates diagram=integrity_diagram initial=initial_case.result previews=include.previews static_gates=true %}

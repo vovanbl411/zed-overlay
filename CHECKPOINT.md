@@ -117,5 +117,8 @@ Phase 4.1 of `independent-crates.sh` covers startup, upstream source
 acquisition, Git-tree verification, and local fingerprints. It passed owner
 and static review. Phase 4.2 covers Portage and generator preparation,
 generation or reuse of the crates archive, and the resulting local files.
-It is implemented and awaits owner review. The next phase covers input
-integrity and metadata synchronization.
+It was accepted and integrated into `main` in PR #52. Phase 4.3 corrects the
+metadata provenance source highlights and covers input integrity and metadata
+synchronization through the call preceding candidate validation. Phase 4.3
+is implemented and awaits owner review. The next phase covers the
+containerized Portage environment.

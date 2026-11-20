@@ -262,15 +262,15 @@ function timing(lab, index) {
 }
 
 const fields = [
-  ['Константа в create_metadata', {schema_version: 1}, [57, 106], 'Версия 1 определяет набор полей и проверок.'],
-  ['--version и производное v{version}', {zed_version: '1.29.0', upstream_tag: 'v1.29.0'}, [59, 106], 'Версия и тег должны описывать один релиз исходников.'],
-  ['--commit · результат acquisition', {upstream_commit: '2'.repeat(40)}, [61, 107], 'Схема проверяет форму SHA. При reuse значение сравнивается с локальным коммитом.'],
-  ['--source-archive → sha256', {source_sha256: 'a'.repeat(64)}, [61, 107], 'Отпечаток сжатого файла исходников.'],
-  ['--lock → sha256', {cargo_lock_sha256: 'b'.repeat(64)}, [61, 108], 'Отпечаток конкретного Cargo.lock.'],
-  ['Константа в create_metadata; pin проверен Bash', {generator: {name: 'pycargoebuild', version: '0.16.0'}}, [64, 108], 'Схема сверяет имя инструмента и версию.'],
-  ['--archive → имя, stat и sha256', {archive: {filename: stem + '.tar.xz', size: 8192, sha256: 'c'.repeat(64)}}, [67, 109], 'Три поля связывают JSON с конкретным локальным архивом registry crates.'],
-  ['--generated → sync.parse_entries', {git_crates: [{name: 'example', repository: 'https://github.com/example/repository', revision: '0123456789abcdef0123456789abcdef01234567', unpack_path: 'repository-%commit%'}]}, [74, 110], 'Записи содержат пакет, репозиторий, ревизию и путь внутри Git-архива.'],
-  ['--generated → license_expressions', {licenses: ['Apache-2.0', 'MIT']}, [84, 110, 115, 117, 118], 'Выражения нормализованы и отсортированы для ручной проверки.'],
+  ['Константа в create_metadata', {schema_version: 1}, [57, 107], 'Версия 1 определяет набор полей и проверок.'],
+  ['--version и производное v{version}', {zed_version: '1.29.0', upstream_tag: 'v1.29.0'}, [59, 107], 'Версия и тег должны описывать один релиз исходников.'],
+  ['--commit · результат acquisition', {upstream_commit: '2'.repeat(40)}, [61, 108], 'Схема проверяет форму SHA. При reuse значение сравнивается с локальным коммитом.'],
+  ['--source-archive → sha256', {source_sha256: 'a'.repeat(64)}, [61, 108], 'Отпечаток сжатого файла исходников.'],
+  ['--lock → sha256', {cargo_lock_sha256: 'b'.repeat(64)}, [61, 109], 'Отпечаток конкретного Cargo.lock.'],
+  ['Константа в create_metadata; pin проверен Bash', {generator: {name: 'pycargoebuild', version: '0.16.0'}}, [64, 109], 'Схема сверяет имя инструмента и версию.'],
+  ['--archive → имя, stat и sha256', {archive: {filename: stem + '.tar.xz', size: 8192, sha256: 'c'.repeat(64)}}, [67, 110], 'Три поля связывают JSON с конкретным локальным архивом registry crates.'],
+  ['--generated → sync.parse_entries', {git_crates: [{name: 'example', repository: 'https://github.com/example/repository', revision: '0123456789abcdef0123456789abcdef01234567', unpack_path: 'repository-%commit%'}]}, [74, 111], 'Записи содержат пакет, репозиторий, ревизию и путь внутри Git-архива.'],
+  ['--generated → license_expressions', {licenses: ['Apache-2.0', 'MIT']}, [84, 111, 115, 117, 118], 'Выражения нормализованы и отсортированы для ручной проверки.'],
 ];
 
 function provenance(lab, index) {
