@@ -1,0 +1,1971 @@
+{
+  "final-checksums": {
+    "title": "Два архива, две последовательные проверки",
+    "layout": "compare",
+    "panels": [
+      "Строка 129 · registry crates",
+      "Строка 130 · исходники"
+    ],
+    "gates": [
+      "SHA-256 crates-архива",
+      "SHA-256 архива исходников",
+      "Можно вызвать ebuild manifest"
+    ],
+    "cases": [
+      {
+        "label": "Оба архива прежние",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: OK\n\nКод: 0",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\n\nstdin (запись с переводом строки)\n7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432  /experiment/dist/zed-1.29.0.tar.gz\n\n/experiment/dist/zed-1.29.0.tar.gz: OK\n\nКод: 0"
+        ],
+        "result": "Строки 129 и 130 прошли. Генерация Manifest достижима.",
+        "lines": {
+          "bash": [
+            129,
+            130,
+            132
+          ]
+        }
+      },
+      {
+        "label": "Содержимое crates-архива изменилось",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: 0ccef0572e3048affb89951a6a260767220bc10e573e055635467fd55dec98dc\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: FAILED\nsha256sum: WARNING: 1 computed checksum did NOT match\n\nКод: 1",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256 не вычислен.\nСтрока 130 пропущена."
+        ],
+        "result": "Первый отказ на строке 129, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Содержимое архива исходников изменилось",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: OK\n\nКод: 0",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256: be9fe6180e324a795101ca1e367e5fd9844ffe2b7f295d0c2130df91d93cf996\n\nstdin (запись с переводом строки)\n7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432  /experiment/dist/zed-1.29.0.tar.gz\n\n/experiment/dist/zed-1.29.0.tar.gz: FAILED\nsha256sum: WARNING: 1 computed checksum did NOT match\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 130, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129,
+            130
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Нет crates-архива",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: файл отсутствует\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\nsha256sum: /experiment/dist/zed-1.29.0-overlay-crates.tar.xz: No such file or directory\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: FAILED open or read\nsha256sum: WARNING: 1 listed file could not be read\n\nКод: 1",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256 не вычислен.\nСтрока 130 пропущена."
+        ],
+        "result": "Первый отказ на строке 129, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Нет архива исходников",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: OK\n\nКод: 0",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256: файл отсутствует\n\nstdin (запись с переводом строки)\n7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432  /experiment/dist/zed-1.29.0.tar.gz\n\nsha256sum: /experiment/dist/zed-1.29.0.tar.gz: No such file or directory\n/experiment/dist/zed-1.29.0.tar.gz: FAILED open or read\nsha256sum: WARNING: 1 listed file could not be read\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 130, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129,
+            130
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Неверный формат ожидаемого SHA-256",
+        "values": [
+          "Ожидалось: invalid\nТекущий SHA-256: файл не открыт: неверная строка stdin\n\nstdin (запись с переводом строки)\ninvalid  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\nsha256sum: 'standard input': no properly formatted checksum lines found\n\nКод: 1",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256 не вычислен.\nСтрока 130 пропущена."
+        ],
+        "result": "Первый отказ на строке 129, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Crates-архив нельзя прочитать",
+        "values": [
+          "Ожидалось: 48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61\nТекущий SHA-256: отказ в доступе\n\nstdin (запись с переводом строки)\n48025b8f8952b8b9a45d582abeb9e2410826e16ebdac45d0d6f53d139da5ac61  /experiment/dist/zed-1.29.0-overlay-crates.tar.xz\n\nsha256sum: /experiment/dist/zed-1.29.0-overlay-crates.tar.xz: Permission denied\n/experiment/dist/zed-1.29.0-overlay-crates.tar.xz: FAILED open or read\nsha256sum: WARNING: 1 listed file could not be read\n\nКод: 1",
+          "Ожидалось: 7cefb9aa217c81555befc729d7fa5d70dbc83bfe20d91eaac7e8af9aee481432\nТекущий SHA-256 не вычислен.\nСтрока 130 пропущена."
+        ],
+        "result": "Первый отказ на строке 129, код 1. Строка 132 пропущена.",
+        "lines": {
+          "bash": [
+            129
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-manifest-life": {
+    "title": "Manifest, его копия и distfiles",
+    "layout": "stack",
+    "panels": [
+      "Сохранённая копия",
+      "Кандидатский Manifest",
+      "Подготовленные distfiles"
+    ],
+    "gates": [
+      "Оба исходных SHA-256 подтверждены",
+      "ebuild manifest",
+      "Можно запустить повторные SHA-256"
+    ],
+    "cases": [
+      {
+        "label": "Генерация завершилась успешно",
+        "values": [
+          "/experiment/original-Manifest\nИсходные DIST-записи",
+          "/overlay/app-editors/zed/Manifest\nПрежние и новые DIST-записи ожидают проверки.",
+          "/experiment/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0.tar.gz\nGit-архивы из cache"
+        ],
+        "result": "Действие manifest вернуло 0. Изменение Manifest видно на хосте.",
+        "lines": {
+          "bash": [
+            131,
+            132
+          ]
+        }
+      },
+      {
+        "label": "Перед генерацией",
+        "values": [
+          "/experiment/original-Manifest\nИсходные DIST-записи",
+          "/overlay/app-editors/zed/Manifest\nИсходные DIST-записи",
+          "/experiment/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0.tar.gz\nGit-архивы из cache"
+        ],
+        "result": "Первые SHA-256 уже проверены. Команда ebuild ещё не запущена.",
+        "lines": {
+          "bash": [
+            131
+          ]
+        },
+        "states": [
+          "PASS",
+          "SKIP",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Требуемый distfile отсутствует",
+        "values": [
+          "/experiment/original-Manifest\nИсходные DIST-записи",
+          "/overlay/app-editors/zed/Manifest\nВ этом примере остался исходным.",
+          "/experiment/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0.tar.gz\nТребуемый Git-архив отсутствует. Получить его не удалось."
+        ],
+        "result": "Условный отказ строки 132. Остальные файлы могут оставаться доступными.",
+        "lines": {
+          "bash": [
+            132
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Команда завершилась ошибкой после записи",
+        "values": [
+          "/experiment/original-Manifest\nИсходные DIST-записи",
+          "/overlay/app-editors/zed/Manifest\nИзменение уже видно в рабочей копии.",
+          "/experiment/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0.tar.gz\nGit-архивы из cache"
+        ],
+        "result": "Условный сбой строки 132 после записи. Отката Manifest и других файлов нет.",
+        "lines": {
+          "bash": [
+            132
+          ]
+        },
+        "fail": 1
+      }
+    ]
+  },
+  "final-recheck": {
+    "title": "Какие проверки уже выполнены",
+    "layout": "compare",
+    "panels": [
+      "До ebuild",
+      "После ebuild"
+    ],
+    "gates": [
+      "Первые SHA-256 crates и исходников",
+      "ebuild manifest",
+      "Повторный SHA-256 crates",
+      "Повторный SHA-256 исходников",
+      "Можно записать первый замер"
+    ],
+    "cases": [
+      {
+        "label": "Оба архива остались прежними",
+        "values": [
+          "129: OK\n130: OK",
+          "132: код 0\n133: OK\n134: OK"
+        ],
+        "result": "Обе повторные проверки прошли. Достижима строка 135.",
+        "lines": {
+          "bash": [
+            129,
+            130,
+            132,
+            133,
+            134
+          ]
+        }
+      },
+      {
+        "label": "Во время ebuild изменился crates-архив",
+        "values": [
+          "129: OK\n130: OK",
+          "132: код 0\n133: FAILED\n134: пропущена"
+        ],
+        "result": "Строка 133 вернула 1. Записи Manifest могли уже измениться.",
+        "lines": {
+          "bash": [
+            129,
+            130,
+            132,
+            133
+          ]
+        },
+        "fail": 2
+      },
+      {
+        "label": "Во время ebuild изменился архив исходников",
+        "values": [
+          "129: OK\n130: OK",
+          "132: код 0\n133: OK\n134: FAILED"
+        ],
+        "result": "Строка 134 вернула 1. Строка 135 пропущена.",
+        "lines": {
+          "bash": [
+            129,
+            130,
+            132,
+            133,
+            134
+          ]
+        },
+        "fail": 3
+      },
+      {
+        "label": "ebuild завершился ошибкой",
+        "values": [
+          "129: OK\n130: OK",
+          "132: ошибка\n133 и 134: пропущены"
+        ],
+        "result": "Bash остановился до повторных проверок.",
+        "lines": {
+          "bash": [
+            129,
+            130,
+            132
+          ]
+        },
+        "fail": 1
+      }
+    ]
+  },
+  "final-manifest-record": {
+    "title": "Что проверяет один вызов --manifest",
+    "layout": "stack",
+    "panels": [
+      "Учебный Manifest",
+      "Вывод инспектора"
+    ],
+    "gates": [
+      "Проверка записи crates-архива",
+      "Можно проверить запись архива исходников"
+    ],
+    "cases": [
+      {
+        "label": "Корректная DIST-запись",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Generated archive Manifest digests: OK\n\nКод: 0"
+        ],
+        "result": "Строка 136 прошла. Можно сверить запись архива исходников на строке 137.",
+        "lines": {
+          "bash": [
+            136,
+            137
+          ],
+          "inspect": [
+            55,
+            57,
+            59,
+            62,
+            65,
+            67,
+            75,
+            81,
+            85
+          ]
+        }
+      },
+      {
+        "label": "Запись отсутствует",
+        "values": [
+          "Нет подходящей строки.",
+          "Archive validation failed: Manifest must contain exactly one generated archive record\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            55,
+            57,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Запись продублирована",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee\nDIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Archive validation failed: Manifest must contain exactly one generated archive record\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            55,
+            57,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Размер отличается",
+        "values": [
+          "DIST lesson-crates.tar.xz 16 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Archive validation failed: Manifest size or digest fields are invalid\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            59,
+            60,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "BLAKE2B отличается",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B f61e7575dacc4760efc7f786c5c90bb39135a1700cced3c9c5d66db72a0e741bce821cb98e26f16eba25bcb7e864770599ef308db6fe425e756c04834d45ccd9 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Archive validation failed: Manifest BLAKE2B mismatch\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            64,
+            65,
+            66,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "SHA512 отличается",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 49d5b8799558e22d3890d03b56a6c7a46faa1a7d216c2df22507396242ab3540e2317b870882b2384d707254333a8439fd3ca191e93293f745786ff78ef069f8",
+          "Archive validation failed: Manifest SHA512 mismatch\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            64,
+            65,
+            66,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Поля SHA512 отсутствуют",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3",
+          "Archive validation failed: Manifest size or digest fields are invalid\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            59,
+            60,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Дайджест указан другим алгоритмом",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA256 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Archive validation failed: Manifest must contain BLAKE2B and SHA512 digests\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            61,
+            62,
+            63,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Файл нельзя прочитать",
+        "values": [
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Archive validation failed: [Errno 13] Permission denied: 'lesson-crates.tar.xz'\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 136. Проверка архива исходников пропущена.",
+        "lines": {
+          "bash": [
+            136
+          ],
+          "inspect": [
+            64,
+            65,
+            81,
+            82,
+            83,
+            84
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-preserve": {
+    "title": "Какая прежняя строка должна сохраниться",
+    "layout": "stack",
+    "panels": [
+      "До",
+      "После",
+      "Вывод проверки"
+    ],
+    "gates": [
+      "Сохранность всех прежних DIST-записей",
+      "Можно вызвать emerge"
+    ],
+    "cases": [
+      {
+        "label": "Добавлена новая запись, прежняя совпадает",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee\nDIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "Distribution preserve-manifest: OK\nКод: 0"
+        ],
+        "result": "Проверка DIST завершилась успешно. Следующий этап — emerge.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            168,
+            171,
+            176,
+            178,
+            243
+          ]
+        }
+      },
+      {
+        "label": "Прежняя запись удалена",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-crates.tar.xz 15 BLAKE2B ee07235f429dce6c1121922b45a920f6f6afaa914a48da5debb399536c761d673fa346b7ed4e6b41e1957fe8a8dba52793a02c7f84150258ef329f5150dcb8b3 SHA512 da191f2774dfd1c8457d6769995d4bfa9a19cff40e00a67d017ef188cbecde2ba3aed9fb3318fdb4f8e26a94f14aeaf1f0d1b9bbe7f3f98d45d1f0e62aac26ee",
+          "Distribution validation failed: Existing Manifest distfile changed: lesson-old.tar.gz\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            177,
+            178,
+            179,
+            241
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Изменён прежний размер",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-old.tar.gz 13 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "Distribution validation failed: Existing Manifest distfile changed: lesson-old.tar.gz\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            177,
+            178,
+            179,
+            241
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Изменён прежний дайджест",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-old.tar.gz 12 BLAKE2B b0c59132068a3b1c21359a8ade9d65282d7d24cebeeb445610ddee50f96252857b57fb396307902dd092d9cbc05476dccc9b92d2a6d03f236897052bfdc05f28 SHA512 b05dfc13b282828aebcfb366cf23dd6eca00deb69f4aaf8d4e600a25655c2cdbb513cbf57dc2354664fbef3cf4a620432b18fd7f0090d1f29c0167a95b98d765",
+          "Distribution validation failed: Existing Manifest distfile changed: lesson-old.tar.gz\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            177,
+            178,
+            179,
+            241
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Прежняя запись продублирована",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899\nDIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "Distribution validation failed: Malformed or duplicate Manifest entry\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            168,
+            169,
+            170,
+            241
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Строка DIST без имени",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899\nDIST",
+          "Distribution validation failed: Malformed or duplicate Manifest entry\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            168,
+            169,
+            170,
+            241
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Строка другого типа",
+        "values": [
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899",
+          "DIST lesson-old.tar.gz 12 BLAKE2B ca17997cc76ebeaa01a0d362490dd15251056fd8f462517a38c01a42915f17ecbd5e7ea68230feb56a02b13409a92451166e7f23d3f33c32a74b412ebfa521c9 SHA512 28d8718def854eb6a6916ac1456f6f4b48de7c704ab125d01c51e7a57513ea6b48cf5ca818d6cbde311977353387810e4bf1d27723017b27539be9d0593a4899\nAUX lesson.patch 5",
+          "Distribution validation failed: Malformed or duplicate Manifest entry\nКод: 1"
+        ],
+        "result": "Строка 138 завершилась с кодом 1. emerge пропущен.",
+        "lines": {
+          "bash": [
+            138
+          ],
+          "dist": [
+            168,
+            169,
+            170,
+            241
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-emerge": {
+    "title": "Как план зависимостей открывает следующий шаг",
+    "layout": "compare",
+    "panels": [
+      "Атом и окружение",
+      "Ответ в учебном сценарии"
+    ],
+    "gates": [
+      "Разрешение зависимостей",
+      "Запись замера",
+      "Можно проверить Cargo snapshot"
+    ],
+    "cases": [
+      {
+        "label": "Все зависимости разрешимы",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nWayland для vulkan-loader, sound-server для pipewire.",
+          "Условный вывод\n[ebuild  N  ] app-editors/zed-1.29.0::zed-overlay\n\nКод в этом сценарии: 0"
+        ],
+        "result": "Строка 141 пишет время. Затем проверяется Cargo snapshot.",
+        "lines": {
+          "bash": [
+            139,
+            140,
+            141,
+            143
+          ]
+        }
+      },
+      {
+        "label": "Зависимость отсутствует",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nВ дереве нет подходящей версии зависимости.",
+          "Условный вывод\nНет ebuild, подходящего под media-libs/example.\n\nКод в этом сценарии: 1"
+        ],
+        "result": "Первый отказ на строке 140. Строки 141 и 143 пропущены.",
+        "lines": {
+          "bash": [
+            140
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Пакет замаскирован",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nПолитика package.mask исключает кандидата.",
+          "Условный вывод\nПодходящая версия Zed замаскирована.\n\nКод в этом сценарии: 1"
+        ],
+        "result": "Первый отказ на строке 140. Строки 141 и 143 пропущены.",
+        "lines": {
+          "bash": [
+            140
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Конфликт USE",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nВыбранные USE-настройки противоречат требованию зависимости.",
+          "Условный вывод\nТребуется media-libs/example[wayland].\n\nКод в этом сценарии: 1"
+        ],
+        "result": "Первый отказ на строке 140. Строки 141 и 143 пропущены.",
+        "lines": {
+          "bash": [
+            140
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Нет метаданных репозитория",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nPortage не может прочитать метаданные нужного дерева.",
+          "Условный вывод\nНе удалось загрузить метаданные gentoo.\n\nКод в этом сценарии: 1"
+        ],
+        "result": "Первый отказ на строке 140. Строки 141 и 143 пропущены.",
+        "lines": {
+          "bash": [
+            140
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Ошибка синтаксиса зависимости",
+        "values": [
+          "=app-editors/zed-1.29.0::zed-overlay\n~amd64\ngentoo + zed-overlay\nPortage отклоняет выражение зависимости из ebuild.",
+          "Условный вывод\nНевалидное выражение в DEPEND.\n\nКод в этом сценарии: 1"
+        ],
+        "result": "Первый отказ на строке 140. Строки 141 и 143 пропущены.",
+        "lines": {
+          "bash": [
+            140
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-cargo": {
+    "title": "Что остановит финальную проверку Cargo",
+    "layout": "compare",
+    "panels": [
+      "Входы в контейнере",
+      "Вывод Python на учебных данных"
+    ],
+    "gates": [
+      "Проверка Cargo snapshot",
+      "Можно запустить patch"
+    ],
+    "cases": [
+      {
+        "label": "Снимок совпадает",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: OK\n\nКод: 0"
+        ],
+        "result": "Строка 143 прошла. Dry-run патча достижим.",
+        "lines": {
+          "bash": [
+            143,
+            144
+          ],
+          "snapshot": [
+            287,
+            288,
+            289,
+            290,
+            291,
+            292,
+            293,
+            301,
+            303,
+            304,
+            308,
+            322,
+            323
+          ]
+        }
+      },
+      {
+        "label": "В GIT_CRATES нет новой зависимости",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: needed: upstream Git dependency is missing from GIT_CRATES.\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            292,
+            265,
+            266,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "В GIT_CRATES есть лишняя зависимость",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: spare: GIT_CRATES entry is absent from upstream Cargo.lock.\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            292,
+            267,
+            268,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Ревизия Git отличается",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: example: revision differs (upstream bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, ebuild aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa).\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            292,
+            277,
+            279,
+            280,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Репозиторий Git отличается",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: example: repository differs (upstream https://github.com/example/other, ebuild https://github.com/example/repository).\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            292,
+            272,
+            274,
+            275,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "WEBRTC_COMMIT отличается",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: WEBRTC_COMMIT differs from upstream corgi.toml\nebuild: 0001d84-4\nupstream: 0001f00-7\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            288,
+            289,
+            293,
+            295,
+            296,
+            297,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Нет декларации в исходном Cargo.toml",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: example: expected offline Git declaration is absent from upstream Cargo.toml.\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            301,
+            303,
+            304,
+            306,
+            308,
+            309,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Подстановка имеет неверную форму",
+        "values": [
+          "/overlay/app-editors/zed/zed-1.29.0.ebuild\n/experiment/source/zed-1.29.0/\n├── Cargo.lock\n├── corgi.toml\n└── Cargo.toml",
+          "Cargo Git dependency snapshot: ERROR: Malformed offline path declaration 'EXAMPLE_PATH'.\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 143. Dry-run патча пропущен.",
+        "lines": {
+          "bash": [
+            143
+          ],
+          "snapshot": [
+            252,
+            253,
+            254,
+            303,
+            320,
+            321
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-patch": {
+    "title": "Куда направлен патч и что проверил dry-run",
+    "layout": "stack",
+    "panels": [
+      "Путь и учебный diff",
+      "Цель, контекст и вывод GNU patch"
+    ],
+    "gates": [
+      "Dry-run Wayland patch",
+      "Можно записать замер"
+    ],
+    "cases": [
+      {
+        "label": "Патч применим",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-old line\n+new line",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: example.txt\nСовпадает. При обычном применении old line станет new line.\n\nchecking file example.txt\n\nКод: 0"
+        ],
+        "result": "Строка 144 прошла. Достижима запись замера на строке 145.",
+        "lines": {
+          "bash": [
+            144,
+            145
+          ]
+        }
+      },
+      {
+        "label": "Контекст не совпадает",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-old line\n+new line",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: example.txt\nВ файле different line вместо old line.\n\nchecking file example.txt\nHunk #1 FAILED at 1.\n1 out of 1 hunk FAILED\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 144, код 1. Замер snapshot и patch пропущен.",
+        "lines": {
+          "bash": [
+            144
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Целевой файл отсутствует",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-old line\n+new line",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: example.txt\nЦелевой файл отсутствует.\n\ncan't find file to patch at input line 3\nPerhaps you used the wrong -p or --strip option?\nThe text leading up to this was:\n--------------------------\n|--- a/example.txt\n|+++ b/example.txt\n--------------------------\nFile to patch: \nSkip this patch? [y] \nSkipping patch.\n1 out of 1 hunk ignored\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 144, код 1. Замер snapshot и patch пропущен.",
+        "lines": {
+          "bash": [
+            144
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Для заголовков выбран неверный strip level",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\n--- example.txt\n+++ example.txt\n@@ -1 +1 @@\n-old line\n+new line",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: Имя не получается после -p1.\nСверка контекста недостижима.\n\ncan't find file to patch at input line 3\nPerhaps you used the wrong -p or --strip option?\nThe text leading up to this was:\n--------------------------\n|--- example.txt\n|+++ example.txt\n--------------------------\nFile to patch: \nSkip this patch? [y] \nSkipping patch.\n1 out of 1 hunk ignored\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 144, код 1. Замер snapshot и patch пропущен.",
+        "lines": {
+          "bash": [
+            144
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Входной patch отсутствует",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\n(входной файл отсутствует)",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: Путь не получен из stdin.\nBash не открывает вход, patch не запущен.\n\nbash: line 1: /overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch: No such file or directory\n\nКод: 1"
+        ],
+        "result": "Первый отказ на строке 144, код 1. Замер snapshot и patch пропущен.",
+        "lines": {
+          "bash": [
+            144
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Текст не является патчем",
+        "values": [
+          "/overlay/app-editors/zed/files/zed-1.29.0-wayland-only.patch\nnot a unified diff",
+          "Корень: /experiment/source/zed-1.29.0\nПосле -p1: В заголовках нет пути.\nСверка контекста недостижима.\n\npatch: **** Only garbage was found in the patch input.\n\nКод: 2"
+        ],
+        "result": "Первый отказ на строке 144, код 2. Замер snapshot и patch пропущен.",
+        "lines": {
+          "bash": [
+            144
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-timing": {
+    "title": "Какие замеры уже дописаны",
+    "layout": "compare",
+    "panels": [
+      "Учебные длительности",
+      "/experiment/logs/timing.txt"
+    ],
+    "gates": [
+      "Интервал Manifest и повторных SHA-256",
+      "Интервал emerge",
+      "Интервал snapshot и patch"
+    ],
+    "cases": [
+      {
+        "label": "Все три замера записаны",
+        "values": [
+          "Manifest + повторные SHA-256 → 8 s\nemerge → 5 s\nsnapshot + patch → 3 s",
+          "Manifest generation: 8s\nPortage dependency resolution: 5s\nSnapshot and patch validation: 3s"
+        ],
+        "result": "В файле три строки в порядке выполнения.",
+        "lines": {
+          "bash": [
+            131,
+            135,
+            139,
+            141,
+            142,
+            145
+          ]
+        }
+      },
+      {
+        "label": "Повторный SHA-256 завершился ошибкой",
+        "values": [
+          "Manifest + повторные SHA-256 → 8 s\nemerge → 5 s\nsnapshot + patch → 3 s",
+          "Файл отсутствует."
+        ],
+        "result": "Первый интервал начался, но строка 135 пропущена. Файл замеров ещё не создан.",
+        "lines": {
+          "bash": [
+            131,
+            133
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "emerge завершился ошибкой",
+        "values": [
+          "Manifest + повторные SHA-256 → 8 s\nemerge → 5 s\nsnapshot + patch → 3 s",
+          "Manifest generation: 8s"
+        ],
+        "result": "В файле остаётся первый замер. Запись времени emerge пропущена.",
+        "lines": {
+          "bash": [
+            131,
+            135,
+            139,
+            140
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Patch dry-run завершился ошибкой",
+        "values": [
+          "Manifest + повторные SHA-256 → 8 s\nemerge → 5 s\nsnapshot + patch → 3 s",
+          "Manifest generation: 8s\nPortage dependency resolution: 5s"
+        ],
+        "result": "Остаются два замера. Snapshot прошёл, но строка 145 не выполнена.",
+        "lines": {
+          "bash": [
+            131,
+            135,
+            139,
+            141,
+            142,
+            143,
+            144
+          ]
+        },
+        "fail": 2
+      }
+    ]
+  },
+  "final-docker": {
+    "title": "Что осталось после завершения Docker",
+    "layout": "compare",
+    "panels": [
+      "Журнал контейнера",
+      "timing.txt и сводка"
+    ],
+    "gates": [
+      "Контейнер завершил проверку",
+      "tee записал журнал",
+      "cat перенёс замеры",
+      "Можно завершить обёртку timed"
+    ],
+    "cases": [
+      {
+        "label": "Контейнер и перенос замеров успешны",
+        "values": [
+          "Вывод Docker → tee → portage.log и журнал runner.",
+          "Все три строки дописаны в сводку."
+        ],
+        "result": "Функция возвращает 0. До создания каталога остаётся запись времени обёрткой timed.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      },
+      {
+        "label": "Сбой команды в контейнере",
+        "values": [
+          "В portage.log сохранён доступный вывод до отказа. Docker=1, tee=0.",
+          "Файл может содержать завершённые замеры. В сводку не перенесён."
+        ],
+        "result": "Строка 146 возвращает 1 из-за pipefail. Строки 147 и 166 пропущены.",
+        "lines": {
+          "bash": [
+            146
+          ]
+        },
+        "states": [
+          "FAIL",
+          "PASS",
+          "SKIP",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "tee завершился ошибкой",
+        "values": [
+          "Docker=0, tee=1. В примере файл журнала не удалось открыть. Вывод доступен в журнале runner.",
+          "Файл замеров записан контейнером, но не прочитан внешним Bash."
+        ],
+        "result": "Первый отказ на строке 146. Нулевого статуса Docker недостаточно.",
+        "lines": {
+          "bash": [
+            146
+          ]
+        },
+        "states": [
+          "PASS",
+          "FAIL",
+          "SKIP",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "timing.txt отсутствует",
+        "values": [
+          "Строка 146 прошла. portage.log на месте.",
+          "cat: файл не найден. Сводка открыта для дозаписи, новых строк нет."
+        ],
+        "result": "Первый отказ на строке 147. Каталог результата не создаётся.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "timing.txt нельзя прочитать",
+        "values": [
+          "Строка 146 прошла. portage.log на месте.",
+          "timing.txt есть, но чтение запрещено. Сводка открыта, строка замера не перенесена."
+        ],
+        "result": "cat вернул ошибку на строке 147. Каталог результата не создаётся.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Нельзя открыть файл сводки",
+        "values": [
+          "Строка 146 прошла. portage.log на месте.",
+          "timing.txt сохранён. Перенаправление >> завершается ошибкой до запуска cat."
+        ],
+        "result": "Ошибка записи сводки на строке 147 останавливает дальнейшие операции.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      },
+      {
+        "label": "Ошибка записи в открытую сводку",
+        "values": [
+          "Строка 146 прошла. portage.log на месте.",
+          "cat вернул ошибку записи, например при нехватке места. Сводка может содержать часть новых данных."
+        ],
+        "result": "Первый отказ на строке 147. Каталог результата не создаётся.",
+        "lines": {
+          "bash": [
+            146,
+            147
+          ]
+        },
+        "states": [
+          "PASS",
+          "PASS",
+          "FAIL",
+          "SKIP"
+        ]
+      }
+    ]
+  },
+  "final-distribution": {
+    "title": "Какая часть результата осталась на диске",
+    "layout": "compare",
+    "panels": [
+      "Источники",
+      "Назначение"
+    ],
+    "gates": [
+      "timed Candidate validation",
+      "mkdir без -p",
+      "cp двух файлов",
+      "Можно записать result.txt"
+    ],
+    "cases": [
+      {
+        "label": "Оба файла скопированы",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nАрхив и JSON доступны в dist.",
+          "$RUNNER_TEMP/crates-distribution\n\ncrates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json"
+        ],
+        "result": "Достижима запись result.txt.",
+        "lines": {
+          "bash": [
+            165,
+            166,
+            167,
+            168
+          ]
+        }
+      },
+      {
+        "label": "Проверка кандидата завершилась ошибкой",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nИсходные файлы могут уже лежать в dist.",
+          "$RUNNER_TEMP/crates-distribution\n\nКаталог не создан."
+        ],
+        "result": "Первый отказ на строке 165. Создание каталога и копирование пропущены.",
+        "lines": {
+          "bash": [
+            165
+          ]
+        },
+        "fail": 0
+      },
+      {
+        "label": "Каталог уже существует",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nОригиналы доступны.",
+          "$RUNNER_TEMP/crates-distribution\n\nИмеющийся каталог сохранился. Новых файлов скрипт не записал."
+        ],
+        "result": "mkdir без -p вернул ошибку на строке 166. cp не запущен.",
+        "lines": {
+          "bash": [
+            166
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Первая копия прошла, вторая не удалась",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nИсточник JSON есть. Целевой файл JSON нельзя открыть.",
+          "$RUNNER_TEMP/crates-distribution\n\ncrates-distribution/\n└── zed-1.29.0-overlay-crates.tar.xz\nВ этом примере место для JSON занято недоступной ссылкой."
+        ],
+        "result": "Первый отказ на строке 167. Успешная копия архива остаётся, result.txt не записан.",
+        "lines": {
+          "bash": [
+            167
+          ]
+        },
+        "fail": 2
+      },
+      {
+        "label": "Нет JSON метаданных",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nАрхив доступен. Файл JSON не найден.",
+          "$RUNNER_TEMP/crates-distribution\n\ncrates-distribution/\n└── zed-1.29.0-overlay-crates.tar.xz"
+        ],
+        "result": "cp завершился ошибкой на строке 167 после успешной копии архива. Строка 168 пропущена.",
+        "lines": {
+          "bash": [
+            167
+          ]
+        },
+        "fail": 2
+      },
+      {
+        "label": "В каталог нельзя записать",
+        "values": [
+          "$work/dist/\nzed-1.29.0-overlay-crates.tar.xz\nzed-1.29.0-overlay-crates.json\n\nОба источника доступны.",
+          "$RUNNER_TEMP/crates-distribution\n\ncrates-distribution/\nВ примере ни один файл не скопирован."
+        ],
+        "result": "Строка 167 завершилась ошибкой. mkdir уже выполнен, result.txt не записан.",
+        "lines": {
+          "bash": [
+            167
+          ]
+        },
+        "fail": 2
+      }
+    ]
+  },
+  "final-mode": {
+    "title": "Что прочитает родитель",
+    "layout": "compare",
+    "panels": [
+      "После копирования",
+      "$work/logs/result.txt"
+    ],
+    "gates": [
+      "Копирование пары",
+      "Запись режима",
+      "Можно вывести итоговую сводку"
+    ],
+    "cases": [
+      {
+        "label": "Режим generation",
+        "values": [
+          "Архив и JSON скопированы.",
+          "generation\n"
+        ],
+        "result": "Строка 168 записала generation и перевод строки.",
+        "lines": {
+          "bash": [
+            167,
+            168
+          ]
+        }
+      },
+      {
+        "label": "Режим reuse",
+        "values": [
+          "Архив и JSON скопированы.",
+          "reuse\n"
+        ],
+        "result": "Строка 168 записала reuse и перевод строки.",
+        "lines": {
+          "bash": [
+            167,
+            168
+          ]
+        }
+      },
+      {
+        "label": "Файл результата нельзя открыть",
+        "values": [
+          "Архив и JSON скопированы.",
+          "В новом рабочем каталоге файл не создан."
+        ],
+        "result": "Первый отказ на строке 168. В этом примере не сработало перенаправление.",
+        "lines": {
+          "bash": [
+            168
+          ]
+        },
+        "fail": 1
+      },
+      {
+        "label": "Копирование завершилось ошибкой",
+        "values": [
+          "В целевом каталоге в примере остался только архив.",
+          "Файл не создан."
+        ],
+        "result": "Строка 167 вернула ошибку. Строка 168 пропущена.",
+        "lines": {
+          "bash": [
+            167
+          ]
+        },
+        "fail": 0
+      }
+    ]
+  },
+  "final-boundary": {
+    "title": "Состояние файлов к моменту выхода",
+    "layout": "compare",
+    "panels": [
+      "Локальные файлы",
+      "Статус и cleanup"
+    ],
+    "gates": [
+      "Валидация и её сводка",
+      "Создание каталога",
+      "Копирование пары",
+      "Запись режима",
+      "Итоговая сводка",
+      "Удаление донора"
+    ],
+    "cases": [
+      {
+        "label": "Все операции успешны",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\nresult.txt\ngeneration\n",
+          "Первый отказ: —\nКод для родителя: 0\nПопытка cleanup: да\n\nИтоговая сводка записана. Удаление донора прошло."
+        ],
+        "result": "Дочерний скрипт вернул 0.",
+        "lines": {
+          "bash": [
+            20,
+            21,
+            22,
+            71,
+            72,
+            165,
+            166,
+            167,
+            168,
+            169
+          ]
+        }
+      },
+      {
+        "label": "Валидация кандидата завершилась ошибкой",
+        "values": [
+          "Каталог результата: Не создан.\n\nresult.txt\nНе создан.",
+          "Первый отказ: 165 · timed Candidate validation\nКод для родителя: 1\nПопытка cleanup: да\n\nКонтейнер мог уже оставить журнал. mkdir не запущен."
+        ],
+        "result": "Дочерний скрипт вернул 1.",
+        "lines": {
+          "bash": [
+            71,
+            72,
+            146,
+            165
+          ]
+        },
+        "fail": 0,
+        "cleanup": true
+      },
+      {
+        "label": "Не удалось создать каталог",
+        "values": [
+          "Каталог результата: Не создан: ошибка создания.\n\nresult.txt\nНе создан.",
+          "Первый отказ: 166 · mkdir\nКод для родителя: 1\nПопытка cleanup: да\n\nВалидация и её сводка завершились. Копирование пропущено."
+        ],
+        "result": "Дочерний скрипт вернул 1.",
+        "lines": {
+          "bash": [
+            71,
+            72,
+            166
+          ]
+        },
+        "fail": 1,
+        "cleanup": true
+      },
+      {
+        "label": "Архив не скопирован",
+        "values": [
+          "Каталог результата: Каталог создан. В примере сохранилась копия JSON.\n\nresult.txt\nНе создан.",
+          "Первый отказ: 167 · cp\nКод для родителя: 1\nПопытка cleanup: да\n\nАрхив отсутствовал. GNU cp всё равно попытался скопировать второй файл."
+        ],
+        "result": "Дочерний скрипт вернул 1.",
+        "lines": {
+          "bash": [
+            71,
+            72,
+            167
+          ]
+        },
+        "fail": 2,
+        "cleanup": true
+      },
+      {
+        "label": "Не удалось записать режим",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\nresult.txt\nНе создан: файл нельзя открыть.",
+          "Первый отказ: 168 · перенаправление >\nКод для родителя: 1\nПопытка cleanup: да\n\nОба итоговых файла уже скопированы. Итоговая сводка пропущена."
+        ],
+        "result": "Дочерний скрипт вернул 1.",
+        "lines": {
+          "bash": [
+            71,
+            72,
+            168
+          ]
+        },
+        "fail": 3,
+        "cleanup": true
+      },
+      {
+        "label": "Не удалось дописать итоговую сводку",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\nresult.txt\ngeneration\n",
+          "Первый отказ: 169 · summary\nКод для родителя: 1\nПопытка cleanup: да\n\nРежим записан раньше. Ошибка tee передаётся через pipefail. Родитель получает ненулевой статус."
+        ],
+        "result": "Дочерний скрипт вернул 1.",
+        "lines": {
+          "bash": [
+            21,
+            71,
+            72,
+            168,
+            169
+          ]
+        },
+        "fail": 4,
+        "cleanup": true
+      },
+      {
+        "label": "Удаление донора завершилось ошибкой",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\nresult.txt\ngeneration\n",
+          "Первый отказ: 71 · docker rm -f\nКод для родителя: 0\nПопытка cleanup: да\n\nИтоговая сводка записана. Ошибка удаления подавлена через || true."
+        ],
+        "result": "Дочерний скрипт вернул 0.",
+        "lines": {
+          "bash": [
+            71,
+            72,
+            169
+          ]
+        },
+        "fail": 5
+      }
+    ]
+  },
+  "final-full": {
+    "title": "Первый отказ, локальные файлы и статус для родителя",
+    "layout": "compare",
+    "panels": [
+      "Что осталось на runner",
+      "Выполненные действия и выход"
+    ],
+    "gates": [
+      "Запуск и рабочие каталоги",
+      "Получение исходников",
+      "Донор Portage и подготовка crates",
+      "Общая проверка входов",
+      "Синхронизация метаданных",
+      "Запуск и настройка stage3",
+      "SHA-256 до Manifest",
+      "Генерация Manifest, повторная сверка и проверка записей",
+      "Разрешение зависимостей",
+      "Cargo snapshot и dry-run",
+      "Возврат замеров и локальные файлы результата",
+      "Удаление донора"
+    ],
+    "cases": [
+      {
+        "label": "Успешная generation",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\n$work/logs/result.txt → generation",
+          "Сгенерированные архив и JSON прошли проверки, итоговая сводка записана.\nПопытка удаления выполнена.\nКод для родителя: 0"
+        ],
+        "result": "Локальная подготовка завершилась с кодом 0.",
+        "lines": {
+          "bash": [
+            151,
+            154,
+            157,
+            158,
+            163,
+            164,
+            165,
+            166,
+            167,
+            168,
+            169,
+            71,
+            72
+          ]
+        }
+      },
+      {
+        "label": "Успешная reuse",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\n$work/logs/result.txt → reuse",
+          "Переиспользованные архив и JSON прошли проверки, итоговая сводка записана.\nПопытка удаления выполнена.\nКод для родителя: 0"
+        ],
+        "result": "Локальная подготовка завершилась с кодом 0.",
+        "lines": {
+          "bash": [
+            151,
+            154,
+            160,
+            163,
+            164,
+            165,
+            166,
+            167,
+            168,
+            169,
+            71,
+            72
+          ]
+        }
+      },
+      {
+        "label": "Не удалось получить исходники",
+        "values": [
+          "Рабочие каталоги созданы. Distfiles ещё не получены.",
+          "Первый отказ: git clone на строке 41. Донор ещё не создан.\nПопытка удаления выполнена. Донор ещё отсутствует.\nКод для родителя: 128"
+        ],
+        "result": "Скрипт остановился с кодом 128. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            41,
+            71,
+            72,
+            151
+          ]
+        },
+        "fail": 1,
+        "states": [
+          "PASS",
+          "FAIL",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "SKIP",
+          "FAIL"
+        ],
+        "cleanup": true
+      },
+      {
+        "label": "Генератор завершился ошибкой",
+        "values": [
+          "Исходники доступны. Возможны частичный архив и generator.log.",
+          "Первый отказ: конвейер генератора на строке 78. Донор создан ранее.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            78,
+            71,
+            72,
+            158
+          ]
+        },
+        "fail": 2,
+        "cleanup": true
+      },
+      {
+        "label": "В reuse не совпали identity",
+        "values": [
+          "Скачанные архив и JSON могут остаться в dist/.",
+          "Первый отказ: вызов reuse на строке 89. Общая проверка пропущена.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            89,
+            71,
+            72,
+            160
+          ]
+        },
+        "fail": 2,
+        "cleanup": true
+      },
+      {
+        "label": "Не совпало дерево исходников",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВременное восстановленное дерево осталось в source-verify/.",
+          "Первый отказ: diff на строке 99.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            99,
+            71,
+            72,
+            163
+          ]
+        },
+        "fail": 3,
+        "cleanup": true
+      },
+      {
+        "label": "Синхронизация GIT_CRATES завершилась ошибкой",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nGit-архивы уже скопированы в dist/.",
+          "Первый отказ: Python отклонил вход на строке 107 до замены ebuild.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            107,
+            71,
+            72,
+            164
+          ]
+        },
+        "fail": 4,
+        "cleanup": true
+      },
+      {
+        "label": "Docker не запустился",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nСохранена исходная копия Manifest.",
+          "Первый отказ: Docker отклонил запуск на строке 113. Демон доступен, внутренний Bash не запущен.\nПопытка удаления выполнена.\nКод для родителя: 125"
+        ],
+        "result": "Скрипт остановился с кодом 125. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            113,
+            146,
+            71,
+            72,
+            165
+          ]
+        },
+        "fail": 5,
+        "cleanup": true
+      },
+      {
+        "label": "Первый SHA-256 не совпал",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest кандидата ещё исходный.",
+          "Первый отказ: сверка crates-архива на строке 129.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            129,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 6,
+        "cleanup": true
+      },
+      {
+        "label": "Не удалось сгенерировать Manifest",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest уже мог измениться на хосте.",
+          "Первый отказ: ebuild manifest на строке 132. Повторные SHA-256 пропущены.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            132,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 7,
+        "cleanup": true
+      },
+      {
+        "label": "Прежняя DIST-запись изменилась",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest уже мог измениться на хосте.\nВ timing.txt уже есть первый замер.",
+          "Первый отказ: preserve-manifest на строке 138. emerge пропущен.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            138,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 7,
+        "cleanup": true
+      },
+      {
+        "label": "emerge не разрешил зависимости",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest уже мог измениться на хосте.\nВ timing.txt только первый замер.",
+          "Первый отказ: emerge на строке 140. Cargo snapshot пропущен.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            140,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 8,
+        "cleanup": true
+      },
+      {
+        "label": "Не прошёл Cargo snapshot",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest уже мог измениться на хосте.\nВ timing.txt два замера.",
+          "Первый отказ: Python на строке 143. Patch dry-run пропущен.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            143,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 9,
+        "cleanup": true
+      },
+      {
+        "label": "Не прошёл patch dry-run",
+        "values": [
+          "Архив и JSON подготовлены в dist/.\nВ одноразовом overlay обновлён ebuild.\nНа runner может остаться portage.log.\nManifest уже мог измениться на хосте.\nВ timing.txt два замера.",
+          "Первый отказ: patch на строке 144. Третий замер пропущен.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            144,
+            146,
+            71,
+            72
+          ]
+        },
+        "fail": 9,
+        "cleanup": true
+      },
+      {
+        "label": "Не скопировался JSON результата",
+        "values": [
+          "crates-distribution/\n└── zed-1.29.0-overlay-crates.tar.xz",
+          "Первый отказ: cp на строке 167. Замеры перенесены, result.txt не создан.\nПопытка удаления выполнена.\nКод для родителя: 1"
+        ],
+        "result": "Скрипт остановился с кодом 1. Локальный результат для родителя не готов.",
+        "lines": {
+          "bash": [
+            146,
+            147,
+            166,
+            167,
+            71,
+            72
+          ]
+        },
+        "fail": 10,
+        "cleanup": true
+      },
+      {
+        "label": "Результат готов, отказ cleanup подавлен",
+        "values": [
+          "crates-distribution/\n├── zed-1.29.0-overlay-crates.tar.xz\n└── zed-1.29.0-overlay-crates.json\n\n$work/logs/result.txt → generation",
+          "Первый отказ: docker rm на строке 71. Обработчик подавил ошибку, итоговая сводка уже записана.\nПопытка удаления выполнена, донор не удалён.\nКод для родителя: 0"
+        ],
+        "result": "Локальная подготовка завершилась с кодом 0.",
+        "lines": {
+          "bash": [
+            165,
+            166,
+            167,
+            168,
+            169,
+            71,
+            72
+          ]
+        },
+        "fail": 11
+      }
+    ]
+  }
+}

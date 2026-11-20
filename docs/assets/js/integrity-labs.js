@@ -2,6 +2,7 @@ import {renderReleaseGates} from './handbook.js';
 
 const sourcePaths = {
   bash: 'scripts/ci/independent-crates.sh',
+  inspect: 'scripts/inspect_zed_archive.py',
   dist: 'scripts/crates_distribution.py',
   sync: 'scripts/sync_zed_git_crates.py',
   snapshot: 'scripts/check_zed_cargo_snapshot.py',
