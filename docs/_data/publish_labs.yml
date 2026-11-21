@@ -91,3 +91,56 @@ workflow:
     io: "Получает выходы check, apply-handoff и publish-crates, а также путь к bundle."
     remote: В начале проверяет локальный Git diff. Дальнейший успешный путь может отправить ветку и открыть Draft PR.
     lines: "222–231"
+api_cases:
+  wrapper: Только обёртка
+  pulls: Вызов для списка PR
+  refs: Вызов для Git ref
+  state: state
+  base: base
+  head: head
+  per_page: per_page
+  found_pr: Открытый PR найден
+  absent_pr: Подходящего PR нет, ветка отсутствует
+  closed_pr: Прежний PR закрыт, ветка осталась
+  other_head: Открытый PR с другой исходной веткой
+  other_base: Открытый PR на другую базовую ветку
+  pr_http: Поиск PR получает HTTP 503
+  pr_transport: Отказ соединения при поиске PR
+  pr_bad_json: Некорректный JSON
+  pr_object: Объект вместо массива
+  pr_no_url: Объект без html_url
+  pr_empty_url: html_url — пустая строка
+  ref_conflict: PR не найден, ветка существует
+  ref_unexpected: PR не найден, Git ref отвечает HTTP 403
+  ref_transport: Отказ соединения при проверке Git ref
+  response_write: Файл ответа PR нельзя открыть на запись
+  summary_write: Запись в summary не удалась
+  http404: HTTP 404 · ссылка не найдена
+  http200: HTTP 200 · ссылка найдена
+  http401: HTTP 401 · требуется аутентификация
+  http403: HTTP 403 · доступ запрещён
+  http429: HTTP 429 · ограничение частоты
+  http500: HTTP 500 · ошибка сервера
+  http503: HTTP 503 · сервис недоступен
+  no_connection: Отказ соединения
+  invalid_writeout: Подставленный write-out «oops»
+  empty_writeout: Подставленный пустой write-out
+api_timeline:
+  - [Открыть файл ответа, 75, 75, redirect]
+  - [Запустить curl для GET, 69, 74, request]
+  - [HTTP и результат curl, 69, 75, response]
+  - [Тело ответа в файле, 74, 75, body]
+  - [Запустить Python и прочитать JSON, 76, 90, parse]
+  - [Получить existing_pr_url, 76, 90, url]
+  - [Ветвление main, 210, 215, decision]
+api_decision:
+  - [Проверить локальный diff, 208, 208, local]
+  - [Открыть файл ответа PR, 75, 75, redirect]
+  - [Запросить открытый PR, 69, 75, response]
+  - [Разобрать JSON и получить URL, 76, 90, parse]
+  - [Проверить длину URL, 210, 210, decision]
+  - [Непустой URL → записать summary, 213, 213, summary]
+  - [Завершить работу с 0, 214, 214, done]
+  - [Пустой URL → запросить Git ref, 97, 99, ref]
+  - [Разобрать HTTP-статус Git ref, 100, 110, ref_case]
+  - [Доступен вызов commit_and_push_branch, 220, 220, next]

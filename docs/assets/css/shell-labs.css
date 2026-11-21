@@ -553,3 +553,20 @@
   background: var(--accent-fill);
   color: var(--accent);
 }
+
+.publish-decision > [data-api-stage="summary"],
+.publish-decision > [data-api-stage="ref"] { margin-block-start: .5rem; }
+
+@media (min-width: 58rem) {
+  .publish-decision { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .publish-decision > li { grid-column: 1 / -1; }
+  .publish-decision > [data-api-stage="summary"] { grid-area: 6 / 1; }
+  .publish-decision > [data-api-stage="ref"] { grid-area: 6 / 2; }
+  .publish-decision > [data-api-stage="done"] { grid-area: 7 / 1; align-self: start; }
+  .publish-decision > [data-api-stage="ref_case"] { grid-area: 7 / 2; }
+  .publish-decision > [data-api-stage="next"] { grid-area: 8 / 2; }
+}
+
+@media (max-width: 57.999rem) {
+  .publish-lab .publish-decision [data-api-stage="ref"][data-gate-state]::before { content: none; }
+}

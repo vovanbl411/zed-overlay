@@ -22,6 +22,20 @@ sections:
   - { id: unstaged-tracked, label: "5.12. Проверяем unstaged tracked changes" }
   - { id: untracked-files, label: "5.13. Проверяем untracked files" }
   - { id: local-boundary, label: "5.14. Полная карта проверки release diff" }
+  - { id: after-local-check, label: "5.15. После локального Git allowlist" }
+  - { id: github-api-wrapper, label: "5.16. Создаём обёртку GitHub API" }
+  - { id: api-headers, label: "5.17. Как curl передаёт авторизацию и заголовки" }
+  - { id: find-existing-pr, label: "5.18. Ищем существующий открытый PR" }
+  - { id: api-query, label: "5.19. GET, URL encoding и параметры запроса" }
+  - { id: api-json, label: "5.20. Читаем JSON через Python и here-document" }
+  - { id: empty-api-result, label: "5.21. Что означает пустой ответ" }
+  - { id: existing-pr-retry, label: "5.22. Повторный запуск с уже открытым PR" }
+  - { id: remote-branch-lookup, label: "5.23. Проверяем существование удалённой ветки" }
+  - { id: branch-curl-status, label: "5.24. Почему здесь нет curl --fail" }
+  - { id: branch-http-cases, label: "5.25. Разбираем HTTP 404, 200 и другие статусы" }
+  - { id: api-first-failure, label: "5.26. Что происходит при ошибках API" }
+  - { id: api-decision-map, label: "5.27. Полная карта принятия решения" }
+  - { id: publication-races, label: "5.28. Идемпотентность и границы race-condition" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -753,8 +767,428 @@ handoff. Игнорируемые файлы могут оставаться н�
 При успехе управление возвращается в `main()` со статусом `0` от
 локальной функции. Поиск открытого PR теперь достижим. Его результат и
 успех дальнейшей публикации зависят от удалённого состояния и следующих
-проверок. Следующая фаза начнётся с вызова на строке 209.
+проверок. [Строка 209](#after-local-check) начинает поиск открытого PR.
 
 ```bash
 find_existing_pr
+```
+
+<script type="application/json" id="publish-api-fixtures">{{ site.data.publish_api | jsonify }}</script>
+
+{% capture remote_entry %}{% raw %}main() {
+  validate_release_diff
+  find_existing_pr
+  if test -n "$existing_pr_url"; then{% endraw %}{% endcapture %}
+
+{% capture workflow_token %}{% raw %}      - name: Publish Draft release PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.apply-handoff.outputs.branch }}
+          CANDIDATE_VERSION: ${{ steps.apply-handoff.outputs.candidate_version }}
+          PATCH_CREATED: ${{ steps.apply-handoff.outputs.patch_created }}
+          ARCHIVE_MODE: ${{ needs.check.outputs.archive_mode }}
+          PUBLICATION_RESULT: ${{ steps.publish-crates.outputs.publication_result }}
+          DISTRIBUTION_BUNDLE: ${{ runner.temp }}/crates-distribution
+        run: scripts/ci/publish-release-pr.sh{% endraw %}{% endcapture %}
+
+{% capture branch_name %}{% raw %}    return AppliedHandoff(
+        release_tag=release_tag,
+        candidate_version=candidate_version,
+        branch=f"automation/zed-{release_tag}",
+        patch_created=patch_created,
+    ){% endraw %}{% endcapture %}
+
+{% capture pr_request %}{% raw %}find_existing_pr() {
+  local pull_response="$RUNNER_TEMP/zed-release-pulls.json"
+
+  github_api --fail --get \
+    --data-urlencode "state=open" \
+    --data-urlencode "base=main" \
+    --data-urlencode "head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" \
+    --data-urlencode "per_page=1" \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls" \
+    > "$pull_response"{% endraw %}{% endcapture %}
+
+{% capture pr_parse %}{% raw %}  existing_pr_url="$(python3 - "$pull_response" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response:
+    payload = json.load(response)
+if not isinstance(payload, list):
+    raise SystemExit("Pull request query returned an invalid response")
+if payload:
+    url = payload[0].get("html_url")
+    if not isinstance(url, str):
+        raise SystemExit("Existing pull request has no URL")
+    print(url)
+PY
+  )"{% endraw %}{% endcapture %}
+
+{% capture pr_close %}{% raw %}}{% endraw %}{% endcapture %}
+
+{% capture ref_request %}{% raw %}assert_remote_branch_absent() {
+  local branch_response="$RUNNER_TEMP/zed-release-branch.json"
+  local branch_status
+
+  branch_status="$(github_api --output "$branch_response" \
+    --write-out '%{http_code}' \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH")"{% endraw %}{% endcapture %}
+
+{% capture ref_case %}{% raw %}  case "$branch_status" in
+    404) ;;
+    200)
+      echo "ERROR: remote automation branch exists without an open PR: $BRANCH" >&2
+      exit 1
+      ;;
+    *)
+      echo "ERROR: could not determine remote branch state (HTTP $branch_status)" >&2
+      exit 1
+      ;;
+  esac
+}{% endraw %}{% endcapture %}
+
+{% capture main_discovery %}{% raw %}main() {
+  validate_release_diff
+  find_existing_pr
+  if test -n "$existing_pr_url"; then
+    # Повторный запуск с уже открытым automation PR завершается успешно:
+    # второй branch и второй PR для того же release не создаются.
+    printf 'Existing automation PR: %s\n' "$existing_pr_url" >> "$GITHUB_STEP_SUMMARY"
+    exit 0
+  fi{% endraw %}{% endcapture %}
+
+{% capture main_continue %}{% raw %}  # Если ветка существует без открытого PR, её происхождение неизвестно;
+  # завершаемся fail-closed и не перезаписываем удалённую ветку.
+  assert_remote_branch_absent
+  commit_and_push_branch
+  create_draft_pr{% endraw %}{% endcapture %}
+
+## 5.15. После локального Git allowlist {#after-local-check}
+
+{% include source-preview.html source=remote_entry label="Начало поиска PR · строки 207–210" path=script revision=revision start=207 open=true %}
+
+[Локальная проверка](#local-boundary) уже записала файлы в Git index через
+`git add`, сверила staged diff с ожидаемым списком и проверила рабочее
+дерево. [HEAD остаётся исходным коммитом](#git-layers), а подготовленный
+снимок лежит в index. На этом этапе у Bash-скрипта ещё нет нового коммита
+или push.
+
+Workflow мог опубликовать crates release на предыдущем шаге. Здесь
+начинается отдельная работа с веткой и PR. Скрипт сначала спрашивает
+GitHub, есть ли уже подходящий открытый PR. От ответа зависит, нужны ли
+следующие действия.
+
+## 5.16. Создаём обёртку GitHub API {#github-api-wrapper}
+
+{% include source-preview.html source=api label="Обёртка curl · строки 22–28" path=script revision=revision start=22 open=true %}
+
+При чтении определения Bash запоминает тело `github_api()`. Лишь вызов
+функции запускает `curl`. `--silent` скрывает индикатор передачи и
+обычные сообщения об ошибках. `--show-error` возвращает сообщения
+об ошибках в stderr при включённом `--silent`. Тело ответа по умолчанию
+остаётся в stdout.
+
+В конце обёртка подставляет `"$@"`. Каждый аргумент вызывающей стороны
+остаётся отдельным, включая пустые аргументы и строки с пробелами.
+`"$*"` склеил бы аргументы в одну строку, а подстановка без кавычек
+допустила бы разделение на слова и раскрытие шаблонов имён файлов.
+Последняя команда функции — `curl`, поэтому её код возврата становится
+кодом возврата обёртки. Параметр `--fail` передаёт тот вызов, которому
+нужно считать HTTP-ошибку ошибкой процесса.
+
+{% capture api_previews %}
+{% include source-preview.html source=api label="Обёртка curl · строки 22–28" path=script revision=revision start=22 %}
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 %}
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-arguments" title="Аргументы обёртки и вызывающей стороны" options="wrapper|pulls|refs" panels="args:Общие аргументы curl|forwarded:Аргументы из $@" initial="Обёртка добавляет заголовки и передаёт аргументы вызова по одному." previews=api_previews %}
+
+## 5.17. Как curl передаёт авторизацию и заголовки {#api-headers}
+
+Каждый `--header` получает один аргумент, содержащий имя и значение
+заголовка. `Accept: application/vnd.github+json` запрашивает JSON в
+формате GitHub REST API. `Authorization: Bearer …` передаёт токен,
+которым GitHub удостоверяет запрос. Права токена определяют, какие
+операции разрешены. Workflow передаёт `github.token` из задания с
+`contents: write` и `pull-requests: write`.
+`X-GitHub-Api-Version: 2022-11-28` выбирает версию контракта API.
+
+HTTP-статус сообщает, как сервер обработал запрос. Код возврата
+`curl` сообщает, как завершился сам клиент с выбранными флагами.
+Например, HTTP `404` может сопровождаться кодом `0` или `22` у
+`curl` в зависимости от `--fail`. Два GET-запроса в этой фазе ищут
+PR и ветку. Положительный результат запроса сам по себе не публикует
+ветку или PR.
+
+{% include source-preview.html source=workflow_token label="Токен, ветка и другие входы шага · строки 222–231" path=workflow revision=revision start=222 open=true %}
+
+## 5.18. Ищем существующий открытый PR {#find-existing-pr}
+
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 open=true %}
+
+`local pull_response=…` задаёт путь только на время вызова
+`find_existing_pr()`. При `> "$pull_response"` Bash сначала
+открывает или обнуляет файл, затем направляет туда stdout команды.
+Если файл открыть не удастся, curl ещё не запустится. При ошибке
+запроса файл может остаться пустым. Код возврата команды определяет,
+можно ли переходить к чтению файла.
+
+`$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls` — адрес списка PR.
+Переменные Actions дают базовый URL, репозиторий и его владельца.
+Шаг применения handoff формирует `branch` из `release_tag` и
+передаёт его через выход шага. Например, для тега `v1.29.0`
+имя ветки будет `automation/zed-v1.29.0`.
+
+{% include source-preview.html source=branch_name label="Имя automation-ветки · строки 348–353" path=handoff revision=revision start=348 open=true %}
+
+## 5.19. GET, URL encoding и параметры запроса {#api-query}
+
+`--get` переводит данные из `--data-urlencode` в строку запроса
+GET. В форме `name=value` curl кодирует значение и соединяет
+параметры через `&`.
+
+| Параметр | Что выбирает запрос |
+| --- | --- |
+| `state=open` | Только открытые PR. |
+| `base=main` | PR с целевой веткой `main`. |
+| `head=owner:branch` | PR из исходной ветки указанного владельца. |
+| `per_page=1` | Не больше одного объекта на странице ответа. |
+
+{% capture api_previews %}
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-request" title="Параметры в адресе GET-запроса" options="head|state|base|per_page" panels="encoding:Исходные и закодированные параметры|endpoint:Endpoint и результат" initial="Для head curl кодирует двоеточие и слеш в значении." previews=api_previews %}
+
+В проверенном локальном запросе curl передал двоеточие как `%3A`,
+а косую черту внутри значения `head` как `%2F`. Слеши в пути
+самого endpoint при этом остаются разделителями. Адрес и владелец
+в лаборатории условные.
+
+Этот поиск опирается на подготовленный handoff, контракт [окружения
+шага](#required-environment) и фильтры API. Из найденного объекта
+скрипту нужен `html_url`. Он не сверяет заголовок PR с версией
+кандидата, SHA коммита, полный diff, автора или статус Draft. Проверку
+distribution bundle выполняют предыдущие шаги workflow. Список PR
+не служит проверкой содержимого архива.
+
+## 5.20. Читаем JSON через Python и here-document {#api-json}
+
+{% include source-preview.html source=pr_parse label="Разбор ответа через here-document · строки 76–90" path=script revision=revision start=76 open=true %}
+
+`python3 - "$pull_response"` читает программу из stdin. Bash
+передаёт её через here-document от `<<'PY'` до строки `PY`.
+Кавычки вокруг открывающего разделителя отключают подстановки
+переменных и команд в теле Python. Закрывающий `PY` стоит
+отдельно без кавычек, а следующая строка `)"` закрывает подстановку
+команды и кавычки Bash.
+
+Имя файла ответа передано отдельным аргументом в `sys.argv[1]`.
+`with open(…, encoding="utf-8")` открывает этот файл и закрывает
+его при выходе из блока. `json.load(response)` читает JSON из файла.
+Таким образом, программа поступает через stdin, а данные — через
+файл по аргументу командной строки.
+
+`isinstance(payload, list)` требует массив. `if payload` пропускает
+пустой массив. Для непустого берётся только `payload[0]`. У
+словаря `get("html_url")` вернёт `None`, если ключа нет.
+`isinstance(url, str)` пропускает строки, после чего `print(url)`
+пишет значение в stdout. Если первый элемент массива окажется,
+например, `null`, вызов `.get` завершится исключением раньше
+проверки URL.
+
+{% capture api_previews %}
+{% include source-preview.html source=pr_parse label="Разбор ответа через here-document · строки 76–90" path=script revision=revision start=76 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-parser" title="Результат Python и значение в Bash" options="empty|found|many|object|malformed|missing_url|null_url|number_url|blank_url|missing_file|invalid_item" panels="json:Входные данные|parse:Операция и потоки Python|variable:Присвоенное значение" initial="Пустой массив проходит проверку списка и оставляет existing_pr_url пустой." previews=api_previews %}
+
+Подстановка `$(…)` удаляет все конечные переводы строки. Поэтому
+`[]` без stdout и `[{"html_url": ""}]` с одним переводом строки
+дают одинаковое `existing_pr_url=""`. Пустая строка проходит проверку
+типа. В обоих случаях `main()` переходит к проверке ветки.
+Лаборатория показывает сообщения `SystemExit` и последние строки
+реальных трассировок для исключений. Для случая без файла отдельно
+вызван Python с путём `response.json`.
+
+## 5.21. Что означает пустой ответ {#empty-api-result}
+
+Ответ HTTP `200` с телом `[]` означает, что запрос списка удался,
+а подходящих PR в результате нет. Пустое тело ответа без массива
+закончится ошибкой `json.load`. Если в массиве есть объект с
+непустым строковым `html_url`, Python печатает URL, а `main()`
+использует его для раннего завершения.
+
+Для поиска PR `--fail` обычно превращает HTTP `400` и выше в код
+возврата curl `22` и подавляет тело такого ответа. Это поведение
+curl, а не проверка успешного HTTP `200` или структуры JSON.
+Например, ответ с HTTP-ошибкой может остаться незамеченным
+`--fail` в отдельных ситуациях с аутентификацией. Успешный curl
+поэтому всё равно оставляет Python проверку тела. Транспортная
+ошибка и ошибка разбора останавливают последовательность по
+`set -e`, без перехода к проверке ветки.
+
+{% capture api_previews %}
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 %}
+{% include source-preview.html source=pr_parse label="Разбор ответа через here-document · строки 76–90" path=script revision=revision start=76 %}
+{% include source-preview.html source=main_discovery label="Ранний выход при наличии PR · строки 207–216" path=script revision=revision start=207 trailing_blank=true %}
+{% endcapture %}
+{% include publish-lab.html lab="api-timeline" title="От GET-запроса до решения main" options="absent_pr|found_pr|pr_http|pr_transport|pr_bad_json" panels="wire:HTTP и код curl|file:Файл ответа PR|parse:Разбор JSON|variable:Переменные Bash|diagnostic:Диагностика" initial="Для HTTP 200 с [] файл прочитан и main переходит к проверке Git ref." previews=api_previews gates=site.data.publish_labs.api_timeline %}
+
+## 5.22. Повторный запуск с уже открытым PR {#existing-pr-retry}
+
+{% include source-preview.html source=main_discovery label="Ранний выход при наличии PR · строки 207–215" path=script revision=revision start=207 open=true %}
+
+Когда `test -n "$existing_pr_url"` получает непустую строку,
+`printf` дописывает URL в файл `$GITHUB_STEP_SUMMARY` через
+`>>`. После успешной записи `exit 0` завершает скрипт.
+Проверка ветки, новый коммит, push и создание Draft PR пропускаются.
+Локальный staging, запрос списка PR и предыдущий шаг с crates
+к этому моменту уже состоялись.
+
+{% capture api_previews %}
+
+{% endcapture %}
+{% include publish-lab.html lab="api-retry" title="Поиск при повторном запуске" options="absent_pr|found_pr|closed_pr|other_head|other_base|pr_http" panels="remote:Состояние PR и ветки|file:Результат фильтров|summary:Результат шага summary|ref:Проверка ветки|diagnostic:Диагностика" initial="Совпавший открытый PR позволяет записать summary и завершиться со статусом 0." previews=api_previews %}
+
+При повторном запуске ранний выход срабатывает для PR, который
+попал под все фильтры. Закрытый PR, PR из другой ветки и PR с другой
+базой могут оставить пустой результат. Тогда решение продолжает
+зависеть от состояния именно той automation-ветки, которую ищет
+скрипт.
+
+## 5.23. Проверяем существование удалённой ветки {#remote-branch-lookup}
+
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 open=true %}
+
+По адресу `/git/ref/heads/$BRANCH` скрипт запрашивает одну ссылку
+в пространстве веток. Для примера её полное имя —
+`refs/heads/automation/zed-v1.29.0`. Путь `branch_response`
+локальный. `--output "$branch_response"` сохраняет тело ответа
+в этот файл, а `--write-out '%{http_code}'` печатает числовой
+HTTP-статус в stdout curl. Подстановка команды записывает этот
+вывод в `branch_status`. Сообщения об ошибках curl идут в stderr.
+Функция не разбирает сохранённое тело, и оно не влияет на исход
+проверки ветки.
+
+{% capture api_previews %}
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-streams" title="Куда попадают тело, статус и ошибка" options="http404|http200|http503|no_connection" panels="response:Ответ HTTP и файл|writeout:stdout и переменная|stderr:stderr curl" initial="При HTTP 404 тело сохраняется в файл, а stdout curl содержит 404." previews=api_previews %}
+
+## 5.24. Почему здесь нет curl --fail {#branch-curl-status}
+
+Вызов принимает ответ HTTP `404` как один из ожидаемых вариантов
+и передаёт его в `case`. Без `--fail` curl может вернуть
+процессный статус `0` даже для HTTP `404` или `503`, если
+получение и запись ответа завершились успешно. С `--fail` типичный
+`404` прервал бы присваивание по `set -e` до `case`.
+
+При отказе соединения HTTP-ответа нет. В локальной проверке
+`--write-out` напечатал `000`, а curl вернул `7`. Присваивание
+успело записать текст `000`, но сохранило ненулевой статус
+подстановки. До `case` Bash в этом случае не дошёл.
+
+## 5.25. Разбираем HTTP 404, 200 и другие статусы {#branch-http-cases}
+
+{% include source-preview.html source=ref_case label="Решение по HTTP-статусу · строки 100–111" path=script revision=revision start=100 open=true %}
+
+| Что дошло до `case` | Решение скрипта |
+| --- | --- |
+| `404` | Запрошенная ссылка не найдена в ответе API. Пустая ветка `case` успешно завершается, и `main()` может вызвать `commit_and_push_branch`. |
+| `200` | Ветка существует, а подходящий открытый PR предыдущим запросом не найден. Скрипт сообщает о конфликте и выходит с `1`. |
+| Другой статус | Состояние отсутствующей ветки не установлено. Скрипт сообщает полученное значение и выходит с `1`. |
+
+{% capture api_previews %}
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 %}
+{% include source-preview.html source=ref_case label="Решение по HTTP-статусу · строки 100–111" path=script revision=revision start=100 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-branch" title="Решение для удалённой ветки" options="http404|http200|http401|http403|http429|http500|http503|no_connection|invalid_writeout|empty_writeout" panels="response:Ответ HTTP и файл|writeout:Захваченное значение|branch:Исход присваивания и case" initial="HTTP 404 с кодом curl 0 разрешает перейти к следующей функции." previews=api_previews %}
+
+`401`, `403`, `429`, `500` и `503` в лаборатории —
+условные HTTP-ответы. Для пустого или испорченного write-out
+используется отдельная подстановка вывода с кодом `0`, чтобы
+показать ветку `*`. Обычный curl в проверенных HTTP-запросах
+печатает три цифры. Вариант с отказом соединения показывает
+остановку присваивания, ещё до любого сравнения.
+
+## 5.26. Что происходит при ошибках API {#api-first-failure}
+
+`existing_pr_url="$(python3 …)"` и `branch_status="$(github_api …)"`
+— самостоятельные команды присваивания. При наличии подстановки
+их статусом становится статус последней подстановки. Ненулевой
+код останавливает этот путь через `set -e`, даже если Bash
+успел присвоить пустую строку или `000`. Это отличается от
+[подстановки внутри аргумента `test`](#unstaged-tracked), где
+статус всей команды определяет сам `test`.
+
+{% capture api_previews %}
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 %}
+{% include source-preview.html source=pr_parse label="Разбор ответа через here-document · строки 76–90" path=script revision=revision start=76 %}
+{% include source-preview.html source=pr_close label="Конец find_existing_pr · строки 91–92" path=script revision=revision start=91 trailing_blank=true %}
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 %}
+{% include source-preview.html source=ref_case label="Решение по HTTP-статусу · строки 100–111" path=script revision=revision start=100 %}
+{% include source-preview.html source=main_discovery label="Ранний выход при наличии PR · строки 207–216" path=script revision=revision start=207 trailing_blank=true %}
+{% include source-preview.html source=main_continue label="Переход от поиска к публикации · строки 217–221" path=script revision=revision start=217 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-errors" title="Первая ошибка и статус выхода" options="pr_http|pr_transport|pr_bad_json|pr_object|pr_no_url|absent_pr|ref_conflict|ref_unexpected|ref_transport|response_write|summary_write" panels="wire:HTTP и код curl|file:Файл ответа PR|parse:Разбор JSON|variable:Переменные Bash|ref:Проверка ветки|summary:Запись summary|diagnostic:Первое сообщение об ошибке" initial="HTTP 503 при поиске PR останавливает скрипт со статусом curl 22 до разбора JSON." previews=api_previews gates=site.data.publish_labs.api_decision %}
+
+Ошибка открытия файла ответа PR останавливает вызов до curl.
+Ошибка записи summary происходит позже, когда URL уже известен.
+При неудачном `>>` Bash останавливает `printf` до `exit 0`.
+Эти отказы, ошибки HTTP и ошибки разбора JSON оставляют решение
+о новой ветке недостижимым. В локальных примерах curl вернул
+`22` для HTTP `503` при поиске PR и `7` при отказе соединения.
+Ошибки разбора и выбранные ошибки перенаправления привели к
+статусу `1`.
+
+## 5.27. Полная карта принятия решения {#api-decision-map}
+
+Выберите сценарий. Карта показывает выполненные этапы, первую
+остановку и пропущенные действия. Выбор любого этапа подсвечивает
+соответствующий исходник. Модель использует фиксированные ответы
+и выполняется локально в браузере. Во всех сценариях исходный
+staging уже состоялся на этапе 5.1.
+
+{% capture api_previews %}
+{% include source-preview.html source=pr_request label="Запрос списка PR · строки 66–75" path=script revision=revision start=66 %}
+{% include source-preview.html source=pr_parse label="Разбор ответа через here-document · строки 76–90" path=script revision=revision start=76 %}
+{% include source-preview.html source=pr_close label="Конец find_existing_pr · строки 91–92" path=script revision=revision start=91 trailing_blank=true %}
+{% include source-preview.html source=ref_request label="Запрос для Git ref · строки 93–99" path=script revision=revision start=93 %}
+{% include source-preview.html source=ref_case label="Решение по HTTP-статусу · строки 100–111" path=script revision=revision start=100 %}
+{% include source-preview.html source=main_discovery label="Ранний выход при наличии PR · строки 207–216" path=script revision=revision start=207 trailing_blank=true %}
+{% include source-preview.html source=main_continue label="Переход от поиска к публикации · строки 217–221" path=script revision=revision start=217 %}
+{% endcapture %}
+{% include publish-lab.html lab="api-decision" title="Поиск PR и проверка ветки" options="found_pr|absent_pr|ref_conflict|ref_unexpected|pr_http|pr_bad_json|pr_empty_url|summary_write|ref_transport|response_write|pr_transport|pr_object|pr_no_url" panels="remote:Наблюдаемое состояние GitHub|wire:HTTP и код curl|file:Файл ответа PR|parse:Разбор JSON|variable:Переменные Bash|ref:Проверка ветки|summary:Запись summary|diagnostic:Диагностика|local:Состояние Git после локальной проверки" initial="При найденном PR с непустым URL скрипт записывает summary, завершает работу с 0 и пропускает запрос Git ref." previews=api_previews gates=site.data.publish_labs.api_decision %}
+
+Верхняя развилка зависит от строки `existing_pr_url`. Непустой
+URL ведёт к записи summary и завершению. Пустой URL ведёт к
+проверке ветки. Только ветка `case` для `404` открывает путь к
+локальному коммиту и push. PASS на этом этапе означает, что
+следующая функция достижима. Её собственный результат ещё
+неизвестен.
+
+## 5.28. Идемпотентность и границы race-condition {#publication-races}
+
+При повторном запуске найденный открытый PR позволяет закончить
+работу сразу после записи summary. Скрипт не переходит к push
+и созданию PR. Существующая automation-ветка
+без подходящего открытого PR остановит скрипт. Закрытые и слитые
+PR этот запрос не перечисляет.
+
+Оба GET-запроса наблюдают состояние GitHub в момент каждого ответа.
+Между поиском PR и проверкой ветки оно может измениться. HTTP
+`404` не резервирует имя. Другой запуск может создать ветку уже
+после ответа, и последующий `git push` может завершиться ошибкой.
+Общей атомарной операции для поиска, push и открытия PR здесь нет.
+Гарантия раннего выхода относится к найденному открытому PR, а не
+к публикации ровно один раз при любой конкуренции.
+
+Фаза 5.3 начинается с `commit_and_push_branch`, когда проверка
+ветки успешно вернула управление. Создание Draft PR следует
+после успешного возврата этой функции.
+
+```bash
+assert_remote_branch_absent
+commit_and_push_branch
+create_draft_pr
 ```
