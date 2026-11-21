@@ -31,6 +31,7 @@ Gentoo — дистрибутив Linux, в котором систему сбо
 
 - [Подготовка кандидата Zed]({{ '/internals/02-shell-scripts/validate-release-candidate/' | relative_url }})
 - [Подготовка crates и проверка исходников]({{ '/internals/02-shell-scripts/independent-crates/' | relative_url }})
+- [Контролируемая публикация релиза]({{ '/internals/02-shell-scripts/publish-release-pr/' | relative_url }})
 </div>
 
 Справочник рассчитан на читателя, который впервые открывает репозиторий.

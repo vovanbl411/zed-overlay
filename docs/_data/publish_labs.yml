@@ -1,0 +1,93 @@
+cases:
+  existing: Существующий неизменённый патч
+  new: Новый патч
+  modified_patch: Существующий патч изменён перед staging
+  missing_ebuild: Новый ebuild отсутствует на диске
+  absent_manifest: Manifest отсутствует и никогда не отслеживался
+  deleted_manifest: Отслеживаемый Manifest удалён
+  extra_staged: Посторонний файл уже в index
+  unchanged_manifest: Manifest не изменился
+  unchanged_patch: PATCH_CREATED=true, но патч не изменился
+  whitespace: Конечный пробел в новой строке
+  marker: Оставшийся маркер конфликта
+  no_diff: Пустой staged diff
+  tracked: Посторонний tracked-файл изменён
+  manifest_after: Manifest отредактирован после staging
+  patch_after: Патч отредактирован после staging
+  untracked: Один untracked-файл
+  multiple: Несколько untracked-файлов
+  ignored: Игнорируемый scratch.tmp
+  package_untracked: Untracked-файл в каталоге пакета
+  unset: RUNNER_TEMP отсутствует
+  empty: BRANCH пуста
+  token: GITHUB_TOKEN отсутствует
+  bundle: DISTRIBUTION_BUNDLE отсутствует
+  bundle_path: Путь передан, но каталога нет
+  version: CANDIDATE_VERSION отсутствует
+  publication: PUBLICATION_RESULT отсутствует
+  pair_invalid: Недопустимая пара reuse:generation
+  version_invalid: Некорректная версия 1.29
+  unstaged_layer: Изменён, ещё не добавлен
+  staged_layer: Изменение уже в index
+  edited_layer: Новая правка после staging
+  new_layer: Новый staged-файл
+  unchanged_layer: Неизменённый tracked-файл
+  untracked_layer: Файл вне index
+  ignored_layer: Игнорируемый файл
+gates:
+  - [Окружение, 4, 15]
+  - [Формат версии, 16, 16]
+  - [Пара режимов, 17, 20]
+  - [Определения функций, 22, 207]
+  - [Вход в main, 224, 224]
+  - [Пути кандидата, 30, 32]
+  - [git add, 33, 33]
+  - [Ошибки staged diff, 34, 34]
+  - [Ожидаемый список, 36, 44]
+  - [Сравнение списков, 45, 53]
+  - [Unstaged tracked, 54, 58]
+  - [Untracked, 59, 63]
+  - [Вызов find_existing_pr доступен, 209, 209]
+workflow:
+  - id: check
+    name: check
+    access: "contents: read"
+    io: "Готовит handoff и bundle. Передаёт handoff_ready, archive_mode и metadata_sha256."
+    remote: Может читать репозиторий. Загрузка артефактов пишет в хранилище Actions.
+    lines: "25–35, 71–89"
+  - id: validate
+    name: validate-release-handoff
+    access: "contents: read"
+    io: "Получает оба артефакта, github.sha и metadata_sha256. Для допуска важен результат job."
+    remote: Может читать репозиторий.
+    lines: "107–147"
+  - id: publish-job
+    name: publish-draft-release-pr
+    access: "contents: write, pull-requests: write"
+    io: "Вход по handoff_ready, успеху validation и refs/heads/main. Checkout main и загрузка обоих артефактов."
+    remote: Токен уже допускает запись. На этом этапе выполняются checkout и скачивание.
+    lines: "149–180"
+  - id: apply
+    name: Apply validated release handoff
+    access: Наследует разрешения задания
+    io: "Сверяет чистый checkout и базовый коммит. Записывает файлы и выдаёт branch, candidate_version, patch_created."
+    remote: Запись разрешена заданию. Этот шаг пишет локальные файлы и выходы Actions.
+    lines: "182–199"
+  - id: policy
+    name: Check overlay policy after handoff apply
+    access: Наследует разрешения задания
+    io: "Читает overlay после применения handoff. Успех позволяет перейти к публикации crates."
+    remote: Запись разрешена заданию. Этот шаг проверяет локальное дерево.
+    lines: "201–202"
+  - id: crates
+    name: Publish validated crates release
+    access: "Токен с contents: write"
+    io: "Получает версию, режим, bundle, handoff, исходный Manifest и хеш метаданных. Возвращает publication_result."
+    remote: Может опубликовать и проверить crates release или проверить существующий.
+    lines: "204–220"
+  - id: script
+    name: publish-release-pr.sh
+    access: "Токен с contents: write и pull-requests: write"
+    io: "Получает выходы check, apply-handoff и publish-crates, а также путь к bundle."
+    remote: В начале проверяет локальный Git diff. Дальнейший успешный путь может отправить ветку и открыть Draft PR.
+    lines: "222–231"

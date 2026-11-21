@@ -513,3 +513,43 @@
     padding-right: .5rem;
   }
 }
+
+.publish-chain {
+  display: grid;
+  gap: .65rem;
+  padding-inline-start: 0;
+  list-style: none;
+}
+.publish-chain > li { position: relative; padding: .5rem .75rem; overflow-wrap: anywhere; }
+.publish-chain > li + li::before,
+.publish-connected > .workspace + .workspace::before {
+  content: "↓" / "";
+  position: absolute;
+  inset-block-start: -.85rem;
+  inset-inline-start: 1rem;
+  color: var(--muted);
+  font-size: .85rem;
+}
+.publish-chain button { width: fit-content; max-width: 100%; text-align: start; overflow-wrap: anywhere; }
+.publish-chain .is-selected, .publish-write-start { border-color: var(--accent); }
+.publish-write-start { background: var(--accent-fill); }
+.publish-workflow dl { margin-block: 0; }
+.publish-workflow dt { font-weight: 650; }
+.publish-workflow dd { margin: 0 0 .45rem; overflow-wrap: anywhere; }
+.publish-panels {
+  display: grid;
+  gap: .65rem;
+  margin-block: .75rem;
+}
+.publish-panels > .workspace { position: relative; min-width: 0; }
+.publish-panels .workspace pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.publish-lab input { max-width: 100%; }
+.publish-lab select { width: fit-content; max-width: 100%; }
+.publish-lab .flow-node[data-gate-state] { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.publish-lab .publish-chain [data-gate-state="SKIP"]::before,
+.publish-lab .publish-chain [data-gate-state="FAIL"] + [data-gate-state="SKIP"]::before { content: "↓" / ""; }
+.publish-chain button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+  color: var(--accent);
+}
