@@ -5,11 +5,11 @@
     <label>ARCHIVE_MODE <input name="archive" type="text" value="generation" spellcheck="false"></label>
     <label>PUBLICATION_RESULT <input name="publication" type="text" value="reuse" spellcheck="false"></label>
     {% else %}
-    <label>{% if include.lab == 'expected' %}PATCH_CREATED{% else %}Сценарий{% endif %}
+    <label>{% if include.lab == 'expected' %}PATCH_CREATED{% elsif include.lab == 'api-request' %}Параметр{% else %}Сценарий{% endif %}
       <select name="scenario">
         {% assign options = include.options | split: '|' %}
         {% for option in options %}
-        {% assign label = site.data.publish_labs.cases[option] | default: option %}
+        {% assign label = site.data.publish_labs.cases[option] | default: site.data.publish_labs.api_cases[option] | default: site.data.publish_api.parser[option].label | default: option %}
         {% if include.lab == 'environment' and option == 'existing' %}{% assign label = 'Все обязательные значения заданы' %}{% endif %}
         <option value="{{ option | escape }}">{{ label | escape }}</option>
         {% endfor %}
@@ -18,19 +18,22 @@
     {% endif %}
   </div>
   <p class="model-result" role="status">{{ include.initial | escape }}</p>
-  {% if include.lab == 'integrated' %}
-  <ol class="publish-chain gate-flow">
-    {% for gate in site.data.publish_labs.gates %}
-    <li class="flow-node" data-gate-state="PASS">
+  {% assign gate_list = include.gates %}
+  {% if include.lab == 'integrated' %}{% assign gate_list = site.data.publish_labs.gates %}{% endif %}
+  {% if gate_list %}
+  <ol class="publish-chain gate-flow{% if include.lab == 'api-decision' %} publish-decision{% endif %}"{% if include.gates %} aria-label="Этапы принятия решения"{% endif %}>
+    {% for gate in gate_list %}
+    <li class="flow-node" data-gate-state="PASS"{% if gate[3] %} data-api-stage="{{ gate[3] }}"{% endif %}>
       <span>{{ gate[0] | escape }}</span>
       <button type="button" data-publish-gate="{{ gate[1] }}:{{ gate[2] }}" aria-pressed="false" hidden>{{ gate[0] | escape }}</button>
-      <span class="lesson-status" data-status="PASS">PASS</span>
+      <span class="lesson-status" data-status="PASS"{% if include.gates %} hidden{% endif %}>PASS</span>
     </li>
     {% endfor %}
   </ol>
   {% endif %}
+  {% if include.lab == 'api-decision' %}{{ include.previews }}{% endif %}
   {% if include.panels %}
-  <div class="publish-panels{% if include.lab == 'layers' or include.lab == 'staging' or include.lab == 'allowlist' %} publish-connected{% endif %}" data-publish-panels role="group" aria-label="{{ include.title | escape }}"{% unless include.lab == 'layers' %} hidden{% endunless %}>
+  <div class="publish-panels{% if include.lab == 'layers' or include.lab == 'staging' or include.lab == 'allowlist' or include.lab == 'api-arguments' or include.lab == 'api-streams' %} publish-connected{% endif %}" data-publish-panels role="group" aria-label="{{ include.title | escape }}"{% unless include.lab == 'layers' %} hidden{% endunless %}>
     {% assign panels = include.panels | split: '|' %}
     {% for panel in panels %}
     {% assign fields = panel | split: ':' %}
@@ -42,5 +45,5 @@
     {% endfor %}
   </div>
   {% endif %}
-  {{ include.previews }}
+  {% unless include.lab == 'api-decision' %}{{ include.previews }}{% endunless %}
 </div>

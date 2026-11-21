@@ -187,11 +187,215 @@ function gitLabResult(lab, scenario) {
   }
 }
 
+
+const api = JSON.parse(document.getElementById('publish-api-fixtures').textContent);
+const apiBase = 'https://api.github.example';
+const repository = 'fixture/overlay';
+const automationBranch = 'automation/zed-v1.29.0';
+const pullsUrl = `${apiBase}/repos/${repository}/pulls`;
+const refUrl = `${apiBase}/repos/${repository}/git/ref/heads/${automationBranch}`;
+const pullFile = '$RUNNER_TEMP/zed-release-pulls.json';
+const refFile = '$RUNNER_TEMP/zed-release-branch.json';
+const query = {
+  state: 'open',
+  base: 'main',
+  head: `fixture:${automationBranch}`,
+  per_page: '1',
+};
+
+function apiArguments(scenario) {
+  const wrapper = [
+    '--silent', '--show-error',
+    '--header', 'Accept: application/vnd.github+json',
+    '--header', 'Authorization: Bearer <REDACTED>',
+    '--header', 'X-GitHub-Api-Version: 2022-11-28',
+  ];
+  const forwarded = {
+    wrapper: [],
+    pulls: ['--fail', '--get', ...Object.entries(query).flatMap(([key, value]) => ['--data-urlencode', `${key}=${value}`]), pullsUrl],
+    refs: ['--output', refFile.replace('$RUNNER_TEMP', '/tmp/runner'), '--write-out', '%{http_code}', refUrl],
+  }[scenario];
+  return {
+    args: ['curl', ...wrapper.map(arg => JSON.stringify(arg))].join('\n'),
+    forwarded: forwarded.length ? forwarded.map(arg => JSON.stringify(arg)).join('\n') : 'Пустой список аргументов',
+    result: 'Читать сверху вниз. Каждая строка после curl — один аргумент. Значение токена скрыто.',
+    line: scenario === 'wrapper' ? 22 : scenario === 'pulls' ? 69 : 97,
+    last: scenario === 'wrapper' ? 28 : scenario === 'pulls' ? 74 : 99,
+  };
+}
+
+function apiRequest(scenario) {
+  const encoded = api.get_query.split('&');
+  const index = Object.keys(query).indexOf(scenario);
+  return {
+    endpoint: `API: ${apiBase}\nПуть: /repos/${repository}/pulls\nGET ${pullsUrl}?${api.get_query}\nstdout → ${pullFile}`,
+    encoding: Object.entries(query).map(([key, value], i) => `${key}=${value} → ${encoded[i]}`).join('\n'),
+    result: `Параметр ${scenario} в URL: ${encoded[index]}.`,
+    line: 70 + index,
+  };
+}
+
+function parserResult(scenario) {
+  const parsed = api.parser[scenario];
+  const captured = parsed.stdout.replace(/\n+$/, '');
+  const [line, last = line] = {
+    empty: [84], found: [88], many: [85, 88], object: [82, 83], malformed: [81],
+    missing_url: [85, 87], null_url: [86, 87], number_url: [86, 87],
+    blank_url: [88], invalid_item: [85], missing_file: [80],
+  }[scenario];
+  const variable = `existing_pr_url=${JSON.stringify(captured)}`;
+  const next = parsed.status ? 'main() не продолжится'
+    : captured ? 'main() перейдёт к summary и пропустит запрос ветки'
+      : 'main() перейдёт к проверке ветки';
+  return {
+    ...parsed,
+    json: parsed.body ?? 'Файл response.json отсутствует',
+    parse: `${parsed.operation}\nСтатус Python: ${parsed.status}\nstdout: ${JSON.stringify(parsed.stdout)}\nstderr: ${parsed.stderr || empty}`,
+    variable,
+    captured, line, last,
+    result: `${variable}. Присваивание вернуло ${parsed.status}, ${next}.`,
+  };
+}
+
+function apiBranch(scenario) {
+  const received = api.branch[scenario.slice(4)];
+  const sample = scenario === 'no_connection' ? api.transport.branch
+    : received ?? {curl: 0, writeout: scenario === 'empty_writeout' ? '' : 'oops'};
+  const {curl, writeout} = sample;
+  const caseLabel = curl ? 'case пропущен' : writeout === '404' ? '404)' : writeout === '200' ? '200)' : '*)';
+  const status = curl || Number(writeout !== '404');
+  const diagnostic = received?.stderr ?? (curl
+    ? 'curl: (7) … (отказ соединения в локальной проверке)'
+    : `ERROR: could not determine remote branch state (HTTP ${writeout})`);
+  const variable = `branch_status=${JSON.stringify(writeout)}`;
+  const line = curl || scenario === 'http404' || scenario === 'http200'
+    ? (curl ? 97 : scenario === 'http404' ? 101 : 102)
+    : 106;
+  return {
+    response: received ? `HTTP ${received.http}\nТело → ${refFile}\n${received.body}`
+      : 'В этом сценарии тело в файл не записано',
+    writeout: `stdout curl: ${JSON.stringify(writeout)}\n${variable}`,
+    stderr: curl ? diagnostic : empty,
+    branch: `Код curl: ${curl}\nСтатус присваивания: ${curl}\nВетвь: ${caseLabel}\nstderr функции: ${diagnostic || empty}`,
+    variable, status, failure: curl ? 'ref' : status ? 'ref_case' : '',
+    diagnostic, line, last: curl ? 99 : caseLabel === '200)' ? 105 : caseLabel === '*)' ? 109 : 101,
+    result: status ? `${curl ? 'Присваивание' : 'Проверка статуса'} останавливает скрипт с кодом ${status}. commit_and_push_branch недостижима.`
+      : 'Функция вернула 0. Вызов commit_and_push_branch достижим.',
+  };
+}
+
+const discoveryScenarios = {
+  found_pr: {parser: 'found', remote: 'Есть подходящий открытый PR. Git ref отдельно не запрашивается.'},
+  absent_pr: {},
+  closed_pr: {ref: 'http200', remote: 'Закрытый PR вне state=open. Git ref найден.'},
+  other_head: {remote: 'Открытый PR из другой ветки вне head=fixture:automation/zed-v1.29.0. Искомая ветка не найдена.'},
+  other_base: {ref: 'http200', remote: 'Открытый PR с base=develop вне base=main. Automation-ветка найдена.'},
+  pr_http: {curl: 22},
+  pr_transport: {curl: api.transport.pr.curl},
+  pr_bad_json: {parser: 'malformed'},
+  pr_object: {parser: 'object'},
+  pr_no_url: {parser: 'missing_url'},
+  pr_empty_url: {parser: 'blank_url', remote: 'API вернул объект с пустым URL. Git ref не найден.'},
+  ref_conflict: {ref: 'http200'},
+  ref_unexpected: {ref: 'http403'},
+  ref_transport: {ref: 'no_connection'},
+  response_write: {openFailed: true},
+  summary_write: {parser: 'found', summaryFailed: true, remote: 'Подходящий открытый PR найден до ошибки записи.'},
+};
+
+function apiDiscovery(scenario) {
+  const example = discoveryScenarios[scenario];
+  const gates = {local: 'PASS'};
+  const curl = example.curl ?? 0;
+  let failure;
+  let status;
+  let diagnostic = empty;
+  let parsed;
+  let branch;
+  let summary = skipped;
+  let wire = skipped;
+  let file = skipped;
+  let remote = example.remote ?? 'Наличие подходящего открытого PR и Git ref не установлено.';
+  if (example.openFailed) {
+    [failure, status] = ['redirect', 1];
+    diagnostic = 'No such file or directory (конец сообщения Bash при открытии файла)';
+    file = `${pullFile}\nОткрытие на запись не удалось`;
+  } else {
+    gates.redirect = gates.request = 'PASS';
+    if (curl) {
+      [failure, status] = ['response', curl];
+      wire = curl === 22 ? 'HTTP 503 · curl завершился с 22' : 'HTTP-ответа нет · curl завершился с 7';
+      diagnostic = curl === 22 ? api.pr_http_error : 'curl: (7) … (отказ соединения в локальной проверке)';
+      file = `${pullFile}\nФайл открыт, тело не записано`;
+    } else {
+      gates.response = gates.body = 'PASS';
+      parsed = parserResult(example.parser ?? 'empty');
+      wire = 'HTTP 200 · curl завершился с 0';
+      file = `${pullFile}\n${parsed.json}`;
+      if (parsed.status) {
+        [failure, status, diagnostic] = ['parse', parsed.status, parsed.stderr];
+      } else {
+        gates.parse = gates.url = gates.decision = 'PASS';
+        if (parsed.captured) {
+          if (example.summaryFailed) {
+            [failure, status] = ['summary', 1];
+            diagnostic = 'Is a directory (конец сообщения Bash при записи summary)';
+            summary = 'Открытие $GITHUB_STEP_SUMMARY через >> завершилось ошибкой';
+          } else {
+            gates.summary = gates.done = 'PASS';
+            status = 0;
+            summary = `>> $GITHUB_STEP_SUMMARY\nExisting automation PR: ${parsed.captured}`;
+          }
+        } else {
+          branch = apiBranch(example.ref ?? 'http404');
+          if (branch.failure !== 'ref') gates.ref = 'PASS';
+          if (branch.failure) {
+            [failure, status, diagnostic] = [branch.failure, branch.status, branch.diagnostic];
+          } else {
+            gates.ref_case = gates.next = 'PASS';
+          }
+          if (!example.remote) {
+            remote = {
+              'branch_status="404"': 'Подходящего открытого PR нет. Git ref не найден на момент ответа.',
+              'branch_status="200"': 'Подходящего открытого PR нет. Git ref существует.',
+            }[branch.variable] ?? 'Подходящего открытого PR нет. Состояние Git ref не установлено.';
+          }
+        }
+      }
+    }
+  }
+  if (failure) gates[failure] = 'FAIL';
+  const first = {
+    redirect: 'перенаправление > для файла ответа (строка 75)',
+    response: 'curl для списка PR (строки 69–75)',
+    parse: `${parsed?.operation} (Python, строка ${parsed?.line})`,
+    summary: 'перенаправление >> для summary (строка 213)',
+    ref: 'присваивание branch_status (строки 97–99)',
+    ref_case: `case для ${branch?.variable} (строки ${branch?.line}–${branch?.last})`,
+  }[failure];
+  const result = failure ? `Первая ошибка — ${first}. Выход со статусом ${status}. commit_and_push_branch недостижима.`
+    : status === 0 ? 'Summary записан. Скрипт завершился с 0 и пропустил проверку ветки и новый push.'
+      : 'Проверка ветки вернула 0. Следующий вызов commit_and_push_branch достижим.';
+  return {
+    gates, result, failure, diagnostic, summary, remote, wire, file,
+    parse: parsed?.parse ?? skipped,
+    variable: `${parsed?.variable ?? 'existing_pr_url ещё не присвоена'}\n${branch?.variable ?? 'branch_status ещё не присвоена'}`,
+    ref: branch ? `${branch.response}\n${branch.branch}` : skipped,
+    local: `HEAD — исходный коммит\nStaged diff:\n${paths(cases.existing.staged)}\nUnstaged и видимых untracked изменений нет в этой фикстуре`,
+    focus: failure ?? (status === 0 ? 'done' : 'next'),
+    ranges: {
+      parse: parsed?.status ? [parsed.line, parsed.last] : [76, 90],
+      ref_case: branch && branch.failure !== 'ref' ? [branch.line, branch.last] : [100, 110],
+    },
+  };
+}
+
 function highlight(lab, first, last = first) {
   for (const preview of lab.querySelectorAll('[data-source-preview]')) {
+    const sourcePath = preview.querySelector('.source-preview-meta code').textContent;
     for (const row of preview.querySelectorAll('[data-line]')) {
       const number = Number(row.dataset.line);
-      row.classList.toggle('shell-current-line', number >= first && number <= last);
+      row.classList.toggle('shell-current-line', sourcePath === 'scripts/ci/publish-release-pr.sh' && number >= first && number <= last);
     }
     if (preview.querySelector('.shell-current-line')) preview.open = true;
   }
@@ -206,15 +410,16 @@ function initLab(lab) {
   const status = lab.querySelector('[role="status"]');
   const outputs = lab.querySelectorAll('[data-publish-output]');
 
+  let trace;
   function selectGate(button) {
     for (const gate of gates) gate.setAttribute('aria-pressed', String(gate === button));
-    const [first, last] = button.dataset.publishGate.split(':').map(Number);
+    const stage = button.closest('[data-api-stage]')?.dataset.apiStage;
+    const [first, last] = trace.ranges?.[stage] ?? button.dataset.publishGate.split(':').map(Number);
     if (first === 4 && scenario.value === 'unset') highlight(lab, environmentResult(scenario.value).line);
     else highlight(lab, first, last);
   }
 
   function render() {
-    let trace;
     switch (kind) {
       case 'environment':
         trace = environmentResult(scenario.value);
@@ -243,10 +448,38 @@ function initLab(lab) {
         }));
         selectGate(gates[trace.failure < 0 ? gates.length - 1 : trace.failure]);
         break;
+      case 'api-arguments':
+        trace = apiArguments(scenario.value);
+        break;
+      case 'api-request':
+        trace = apiRequest(scenario.value);
+        break;
+      case 'api-parser':
+        trace = parserResult(scenario.value);
+        break;
+      case 'api-streams':
+        trace = {...apiBranch(scenario.value), line: 97, last: 99};
+        break;
+      case 'api-branch':
+        trace = apiBranch(scenario.value);
+        break;
+      case 'api-retry':
+      case 'api-errors':
+      case 'api-timeline':
+      case 'api-decision': {
+        trace = apiDiscovery(scenario.value);
+        const stages = gates.map(button => button.closest('[data-api-stage]').dataset.apiStage);
+        if (gates.length) {
+          renderReleaseGates(lab, stages.map(stage => trace.gates[stage] ?? 'SKIP'));
+          const active = stages.indexOf(trace.focus);
+          selectGate(gates[active < 0 ? gates.length - 1 : active]);
+        }
+        break;
+      }
       default:
         trace = gitLabResult(kind, scenario.value);
     }
-    if (trace.line) highlight(lab, trace.line);
+    if (trace.line) highlight(lab, trace.line, trace.last);
     for (const output of outputs) output.textContent = trace[output.dataset.publishOutput];
     status.textContent = trace.result;
   }
@@ -255,6 +488,7 @@ function initLab(lab) {
     button.addEventListener('click', () => selectGate(button));
     button.previousElementSibling.hidden = true;
     button.hidden = false;
+    button.nextElementSibling.hidden = false;
   }
   controls.addEventListener(kind === 'pair' ? 'input' : 'change', render);
   render();

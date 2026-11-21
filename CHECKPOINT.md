@@ -133,7 +133,11 @@ Cargo snapshot, the Wayland patch dry-run, and the files returned to the
 parent script. The complete `independent-crates.sh` walkthrough was accepted
 and integrated into `main` in PR #55.
 
-Phase 5.1 covers the startup of `publish-release-pr.sh`, the Git index, and
-the release diff allowlist. It is implemented and awaits owner review.
-The next phase covers the GitHub API, existing PR detection, and remote
-branch checks.
+Phase 5.1 covered startup, the Git index, and the release diff allowlist
+in `publish-release-pr.sh`. The owner accepted it, and it was merged into
+`main` in PR #57.
+
+Phase 5.2 covers the GitHub REST API, existing PR discovery, and the
+remote branch check. It is implemented and awaits owner review. The next
+phase covers local branch creation, the Git commit, restoring the remote
+URL, and pushing the branch.

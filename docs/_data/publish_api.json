@@ -1,0 +1,155 @@
+{
+  "parser": {
+    "empty": {
+      "label": "Пустой массив",
+      "operation": "if payload: пустой список",
+      "body": "[]",
+      "status": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "found": {
+      "label": "Один PR с URL",
+      "operation": "print(url)",
+      "body": "[\n  {\n    \"html_url\": \"https://github.example/fixture/overlay/pull/42\"\n  }\n]",
+      "status": 0,
+      "stdout": "https://github.example/fixture/overlay/pull/42\n",
+      "stderr": ""
+    },
+    "many": {
+      "label": "Два объекта в учебном ответе",
+      "operation": "payload[0] и print(url)",
+      "body": "[\n  {\n    \"html_url\": \"https://github.example/fixture/overlay/pull/42\"\n  },\n  {\n    \"html_url\": \"https://github.example/fixture/overlay/pull/420\"\n  }\n]",
+      "status": 0,
+      "stdout": "https://github.example/fixture/overlay/pull/42\n",
+      "stderr": ""
+    },
+    "object": {
+      "label": "Объект вместо массива",
+      "operation": "isinstance(payload, list) → False",
+      "body": "{}",
+      "status": 1,
+      "stdout": "",
+      "stderr": "Pull request query returned an invalid response"
+    },
+    "malformed": {
+      "label": "Некорректный JSON",
+      "operation": "json.load(response)",
+      "body": "[",
+      "status": 1,
+      "stdout": "",
+      "stderr": "json.decoder.JSONDecodeError: Expecting value: line 1 column 2 (char 1)"
+    },
+    "missing_url": {
+      "label": "Нет ключа html_url",
+      "operation": "dict.get → None, isinstance(url, str) → False",
+      "body": "[{}]",
+      "status": 1,
+      "stdout": "",
+      "stderr": "Existing pull request has no URL"
+    },
+    "null_url": {
+      "label": "html_url равен null",
+      "operation": "isinstance(url, str) → False",
+      "body": "[{\"html_url\": null}]",
+      "status": 1,
+      "stdout": "",
+      "stderr": "Existing pull request has no URL"
+    },
+    "number_url": {
+      "label": "html_url является числом",
+      "operation": "isinstance(url, str) → False",
+      "body": "[{\"html_url\": 42}]",
+      "status": 1,
+      "stdout": "",
+      "stderr": "Existing pull request has no URL"
+    },
+    "blank_url": {
+      "label": "html_url — пустая строка",
+      "operation": "print(\"\")",
+      "body": "[{\"html_url\": \"\"}]",
+      "status": 0,
+      "stdout": "\n",
+      "stderr": ""
+    },
+    "invalid_item": {
+      "label": "Первый элемент не объект",
+      "operation": "payload[0].get",
+      "body": "[null]",
+      "status": 1,
+      "stdout": "",
+      "stderr": "AttributeError: 'NoneType' object has no attribute 'get'"
+    },
+    "missing_file": {
+      "label": "Файл ответа отсутствует",
+      "operation": "open(sys.argv[1], encoding=\"utf-8\")",
+      "body": null,
+      "status": 1,
+      "stdout": "",
+      "stderr": "FileNotFoundError: [Errno 2] No such file or directory: 'response.json'"
+    }
+  },
+  "branch": {
+    "404": {
+      "http": 404,
+      "curl": 0,
+      "writeout": "404",
+      "stderr": "",
+      "body": "{\"message\": \"fixture HTTP 404\"}"
+    },
+    "200": {
+      "http": 200,
+      "curl": 0,
+      "writeout": "200",
+      "stderr": "ERROR: remote automation branch exists without an open PR: automation/zed-v1.29.0",
+      "body": "{\"ref\": \"refs/heads/automation/zed-v1.29.0\"}"
+    },
+    "401": {
+      "http": 401,
+      "curl": 0,
+      "writeout": "401",
+      "stderr": "ERROR: could not determine remote branch state (HTTP 401)",
+      "body": "{\"message\": \"fixture HTTP 401\"}"
+    },
+    "403": {
+      "http": 403,
+      "curl": 0,
+      "writeout": "403",
+      "stderr": "ERROR: could not determine remote branch state (HTTP 403)",
+      "body": "{\"message\": \"fixture HTTP 403\"}"
+    },
+    "429": {
+      "http": 429,
+      "curl": 0,
+      "writeout": "429",
+      "stderr": "ERROR: could not determine remote branch state (HTTP 429)",
+      "body": "{\"message\": \"fixture HTTP 429\"}"
+    },
+    "500": {
+      "http": 500,
+      "curl": 0,
+      "writeout": "500",
+      "stderr": "ERROR: could not determine remote branch state (HTTP 500)",
+      "body": "{\"message\": \"fixture HTTP 500\"}"
+    },
+    "503": {
+      "http": 503,
+      "curl": 0,
+      "writeout": "503",
+      "stderr": "ERROR: could not determine remote branch state (HTTP 503)",
+      "body": "{\"message\": \"fixture HTTP 503\"}"
+    }
+  },
+  "transport": {
+    "pr": {
+      "curl": 7,
+      "writeout": null
+    },
+    "branch": {
+      "curl": 7,
+      "writeout": "000"
+    }
+  },
+  "get_query": "state=open&base=main&head=fixture%3Aautomation%2Fzed-v1.29.0&per_page=1",
+  "pr_http_error": "curl: (22) The requested URL returned error: 503"
+}
