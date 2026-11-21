@@ -3088,4 +3088,6 @@ Workflow передаёт выбранные файлы между задани�
 
 {% include source-preview.html source=final_workflow_upload label="Два артефакта для следующих заданий · строки 71–89" path=".github/workflows/zed-release-watcher.yml" revision=revision start=71 %}
 
-Следующий скрипт главы — [`publish-release-pr.sh`](https://github.com/vovanbl411/zed-overlay/blob/760062230c6f8647aa9bc3eafc0c0e47e5978ca3/scripts/ci/publish-release-pr.sh).
+После проверки handoff управление получает [скрипт контролируемой публикации]({{ '/internals/02-shell-scripts/publish-release-pr/' | relative_url }}).
+В следующем разборе проследим, как он проверяет Git index и рабочее дерево
+перед поиском открытого PR.

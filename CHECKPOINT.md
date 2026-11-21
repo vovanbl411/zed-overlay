@@ -128,7 +128,12 @@ synchronization. It was accepted and merged into `main` in PR #53.
 Phase 4.4 covered the stage3 invocation and temporary Portage configuration.
 It was accepted and merged into `main` in PR #54.
 
-Phase 4.5 covers archive and Manifest checks, dependency resolution, the
+Phase 4.5 covered archive and Manifest checks, dependency resolution, the
 Cargo snapshot, the Wayland patch dry-run, and the files returned to the
-parent script. The complete `independent-crates.sh` walkthrough is ready
-for final owner review. The next Bash script is `publish-release-pr.sh`.
+parent script. The complete `independent-crates.sh` walkthrough was accepted
+and integrated into `main` in PR #55.
+
+Phase 5.1 covers the startup of `publish-release-pr.sh`, the Git index, and
+the release diff allowlist. It is implemented and awaits owner review.
+The next phase covers the GitHub API, existing PR detection, and remote
+branch checks.

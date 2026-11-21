@@ -1,0 +1,35 @@
+<div class="figure selector publish-workflow" data-selector>
+  <h3>От подготовки кандидата до скрипта публикации</h3>
+  <ol class="publish-chain" data-selection-controls aria-label="Этапы workflow">
+    {% for stage in site.data.publish_labs.workflow %}
+    <li class="flow-node{% if forloop.index == 3 %} publish-write-start{% endif %}" data-highlight-for="workflow-{{ stage.id }}">
+      {% if forloop.index == 3 %}<small>Начало задания с правами записи</small>{% endif %}
+      <span data-select="workflow-{{ stage.id }}">{{ stage.name | escape }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% for stage in site.data.publish_labs.workflow %}
+  <div data-panel id="workflow-{{ stage.id }}" class="workspace" data-label="{{ stage.name | escape }}">
+    <dl>
+      <dt>Этап</dt><dd>{{ stage.name | escape }}</dd>
+      <dt>Разрешения</dt><dd>{{ stage.access | escape }}</dd>
+      <dt>Входы и выходы</dt><dd>{{ stage.io | escape }}</dd>
+      <dt>Действия на GitHub</dt><dd>{{ stage.remote | escape }}</dd>
+      <dt>Источник</dt><dd><code>{{ workflow }}</code>, строки {{ stage.lines }}</dd>
+    </dl>
+    {% case stage.id %}
+    {% when 'check' %}
+      {% include source-preview.html source=wf_check label="Задание check и его outputs · строки 25–35" path=workflow revision=revision start=25 %}
+      {% include source-preview.html source=wf_upload label="Передача артефактов · строки 71–89" path=workflow revision=revision start=71 %}
+    {% when 'validate' %}
+      {% include source-preview.html source=wf_validate label="Зависимость и права задания · строки 107–114" path=workflow revision=revision start=107 %}
+      {% include source-preview.html source=wf_validate_steps label="Проверка handoff и bundle · строки 133–147" path=workflow revision=revision start=133 %}
+    {% when 'publish-job' %}<a href="#publish-handoff">Условия допуска и checkout</a>
+    {% when 'apply' %}<a href="#apply-source">Код применения handoff</a>
+    {% when 'policy' %}<a href="#policy-source">Код шага проверки overlay</a>
+    {% when 'crates' %}<a href="#crates-source">Код шага публикации crates</a>
+    {% when 'script' %}<a href="#invoke-source">Передача окружения и запуск</a>
+    {% endcase %}
+  </div>
+  {% endfor %}
+</div>

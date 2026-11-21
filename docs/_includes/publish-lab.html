@@ -1,0 +1,46 @@
+<div class="figure shell-lab publish-lab" data-publish-lab="{{ include.lab }}">
+  <h3>{{ include.title | escape }}</h3>
+  <div class="lab-controls" data-publish-controls hidden>
+    {% if include.lab == 'pair' %}
+    <label>ARCHIVE_MODE <input name="archive" type="text" value="generation" spellcheck="false"></label>
+    <label>PUBLICATION_RESULT <input name="publication" type="text" value="reuse" spellcheck="false"></label>
+    {% else %}
+    <label>{% if include.lab == 'expected' %}PATCH_CREATED{% else %}Сценарий{% endif %}
+      <select name="scenario">
+        {% assign options = include.options | split: '|' %}
+        {% for option in options %}
+        {% assign label = site.data.publish_labs.cases[option] | default: option %}
+        {% if include.lab == 'environment' and option == 'existing' %}{% assign label = 'Все обязательные значения заданы' %}{% endif %}
+        <option value="{{ option | escape }}">{{ label | escape }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+  </div>
+  <p class="model-result" role="status">{{ include.initial | escape }}</p>
+  {% if include.lab == 'integrated' %}
+  <ol class="publish-chain gate-flow">
+    {% for gate in site.data.publish_labs.gates %}
+    <li class="flow-node" data-gate-state="PASS">
+      <span>{{ gate[0] | escape }}</span>
+      <button type="button" data-publish-gate="{{ gate[1] }}:{{ gate[2] }}" aria-pressed="false" hidden>{{ gate[0] | escape }}</button>
+      <span class="lesson-status" data-status="PASS">PASS</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {% if include.panels %}
+  <div class="publish-panels{% if include.lab == 'layers' or include.lab == 'staging' or include.lab == 'allowlist' %} publish-connected{% endif %}" data-publish-panels role="group" aria-label="{{ include.title | escape }}"{% unless include.lab == 'layers' %} hidden{% endunless %}>
+    {% assign panels = include.panels | split: '|' %}
+    {% for panel in panels %}
+    {% assign fields = panel | split: ':' %}
+    <div class="workspace">
+      <strong>{{ fields[1] | escape }}</strong>
+      <pre data-publish-output="{{ fields[0] }}">{% if include.lab == 'layers' %}notes.txt
+  {% if fields[0] == 'work' %}правка{% else %}исходная строка{% endif %}{% endif %}</pre>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {{ include.previews }}
+</div>
