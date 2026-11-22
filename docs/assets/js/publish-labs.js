@@ -390,6 +390,19 @@ function apiDiscovery(scenario) {
   };
 }
 
+const branchCases = JSON.parse(document.getElementById('publish-branch-fixtures').textContent);
+
+function branchPublish(scenario, stages) {
+  const example = branchCases[scenario];
+  const stoppedAt = stages.indexOf(example.failure);
+  const gates = stages.map((stage, index) => {
+    if (stage === 'exit_restore') return example.exit_restore ?? 'SKIP';
+    if (index === stoppedAt) return 'FAIL';
+    return stoppedAt === -1 || index < stoppedAt ? 'PASS' : 'SKIP';
+  });
+  return {...example, gates, focus: stoppedAt === -1 ? stages.indexOf('disarm') : stoppedAt};
+}
+
 function highlight(lab, first, last = first) {
   for (const preview of lab.querySelectorAll('[data-source-preview]')) {
     const sourcePath = preview.querySelector('.source-preview-meta code').textContent;
@@ -462,6 +475,11 @@ function initLab(lab) {
         break;
       case 'api-branch':
         trace = apiBranch(scenario.value);
+        break;
+      case 'branch-publish':
+        trace = branchPublish(scenario.value, gates.map(button => button.closest('[data-api-stage]').dataset.apiStage));
+        renderReleaseGates(lab, trace.gates);
+        selectGate(gates[trace.focus]);
         break;
       case 'api-retry':
       case 'api-errors':

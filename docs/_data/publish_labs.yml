@@ -144,3 +144,68 @@ api_decision:
   - [Пустой URL → запросить Git ref, 97, 99, ref]
   - [Разобрать HTTP-статус Git ref, 100, 110, ref_case]
   - [Доступен вызов commit_and_push_branch, 220, 220, next]
+branch_publish:
+  - [Войти в функцию из main, 220, 220, call]
+  - [Создать локальную ветку, 118, 118, switch]
+  - [Задать имя и email бота, 119, 120, identity]
+  - [Повторить проверку staged diff, 121, 121, check]
+  - [Проверить наличие изменений, 122, 125, empty]
+  - [Создать коммит, 126, 126, commit]
+  - [Сохранить URL origin, 128, 128, capture]
+  - [Установить обработчик EXIT, 129, 129, trap]
+  - [Временно изменить URL origin, 130, 130, url]
+  - [Отправить HEAD в удалённую ветку, 131, 131, push]
+  - [Вызвать restore_origin напрямую, 132, 132, restore]
+  - [Снять обработчик EXIT, 133, 133, disarm]
+  - [Вызвать restore_origin при выходе, 113, 115, exit_restore]
+branch_cases:
+  push_ok:
+    label: Успешный push
+    result: Push и восстановление origin вернули 0. Обработчик EXIT снят. Управление вернулось в main.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка указывает на новый коммит.
+    origin: Исходный URL восстановлен прямым вызовом в строке 132.
+  empty_diff:
+    label: Пустой staged diff
+    failure: empty
+    result: 'git diff --cached --quiet вернул 0. Скрипт печатает «ERROR: release handoff would create an empty commit» и выходит с 1.'
+    local: Создана и активна automation-ветка на исходном коммите. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  branch_collision:
+    label: Локальная ветка уже существует
+    failure: switch
+    result: git switch --create вернул 128. Bash завершает скрипт в строке 118.
+    local: Активна main. Существующая automation-ветка и staged diff сохранены. Запись имени и email бота пропущена.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  commit_rejected:
+    label: Локальный hook отклонил коммит
+    failure: commit
+    result: В фикстуре pre-commit возвращает 1, и git commit завершается с 1. Bash останавливается в строке 126.
+    local: Активна новая automation-ветка на исходном коммите. Staged diff сохранён, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  origin_missing:
+    label: После коммита Git не находит origin
+    failure: capture
+    result: git remote get-url origin вернул 2. Присваивание в строке 128 возвращает тот же статус, Bash завершает скрипт.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: В локальном checkout отсутствует origin. Обработчик EXIT ещё не установлен.
+  push_rejected:
+    label: Гонка после HTTP 404
+    failure: push
+    exit_restore: PASS
+    result: Push отклонён при обновлении без fast-forward и возвращает 1. При выходе со статусом 1 Bash запускает обработчик EXIT.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка, созданная другим участником, сохранила его коммит.
+    origin: Обработчик EXIT восстановил исходный URL.
+  restore_failed:
+    label: Git не может записать исходный URL
+    failure: restore
+    exit_restore: FAIL
+    result: Push вернул 0, но прямая запись исходного URL завершилась с 128. Обработчик EXIT повторяет запись и в этой фикстуре тоже получает 128.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка указывает на новый коммит.
+    origin: 'Из-за блокировки .git/config остался временный URL с [REDACTED] вместо значения токена.'
