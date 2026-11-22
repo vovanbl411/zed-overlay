@@ -1,7 +1,7 @@
 ---
 layout: handbook
 title: Bash — контролируемая публикация релиза
-description: Как скрипт проверяет окружение, Git index и рабочее дерево перед первым запросом о Draft PR.
+description: Как скрипт проходит путь от проверенного handoff и Git diff до push ветки и создания Draft PR.
 chapter: 2
 eyebrow: Глава 02 / Shell scripts
 permalink: /internals/02-shell-scripts/publish-release-pr/
@@ -40,6 +40,12 @@ sections:
   - { id: origin-cleanup, label: "5.30. Временно меняем origin и восстанавливаем URL" }
   - { id: push-race, label: "5.31. Что проверяет push после HTTP 404" }
   - { id: branch-publish-lab, label: "5.32. Сценарии коммита, push и восстановления origin" }
+  - { id: draft-inputs, label: "5.33. Читаем метаданные и лицензии кандидата" }
+  - { id: draft-payload, label: "5.34. Собираем тело и JSON для Draft PR" }
+  - { id: draft-post, label: "5.35. Отправляем POST и читаем html_url" }
+  - { id: draft-summary, label: "5.36. Записываем результат в Step Summary" }
+  - { id: draft-pr-lab, label: "5.37. Сценарии создания Draft PR" }
+  - { id: publication-flow, label: "5.38. Полная карта публикации и повторный запуск" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -1329,3 +1335,257 @@ checkout, удалённой ветки и URL `origin`.
 {% include source-preview.html source=origin_restore label="Восстановление URL · строки 113–115" path=script revision=revision start=113 %}
 {% endcapture %}
 {% include publish-lab.html lab="branch-publish" title="Где остановится публикация ветки?" options="push_ok|empty_diff|branch_collision|commit_rejected|origin_missing|push_rejected|restore_failed" panels="local:Локальный checkout|remote:Удалённая ветка|origin:URL origin после сценария" initial="После успешного push функция восстанавливает origin и снимает обработчик EXIT." previews=branch_previews gates=site.data.publish_labs.branch_publish %}
+
+{% capture draft_inputs %}{% raw %}create_draft_pr() {
+  local payload
+  local pr_response="$RUNNER_TEMP/zed-release-pr.json"
+  local pr_url
+
+  payload="$(PYTHONDONTWRITEBYTECODE=1 python3 - "$CANDIDATE_VERSION" "$BRANCH" "$ARCHIVE_MODE" "$PUBLICATION_RESULT" "$DISTRIBUTION_BUNDLE" <<'PY'
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, 'scripts')
+import crates_distribution as distribution
+import sync_zed_git_crates as sync
+
+version, branch, mode, publication, bundle = sys.argv[1:]
+metadata = distribution.read_metadata(Path(bundle) / distribution.names(version)[1], version)
+candidate = Path(f'app-editors/zed/zed-{version}.ebuild').read_text(encoding='utf-8')
+generated_terms = set(' '.join(metadata['licenses']).split())
+generated_only = sorted(generated_terms - sync.license_terms(candidate))
+candidate_only = sorted(sync.license_terms(candidate) - generated_terms){% endraw %}{% endcapture %}
+
+{% capture draft_automated %}{% raw %}body = f'''## Automated validation
+
+- Stable release discovered
+- Crates release: https://github.com/vovanbl411/zed-overlay/releases/tag/crates-v{version}
+- Archive preparation: {mode}; publication: {publication}
+- Registry archive, Git sources, upstream snapshot and public download verified
+- Generated license expressions: {'; '.join(metadata['licenses'])}
+- Generated-only licenses for review: {', '.join(generated_only) or 'none'}
+- Candidate-only licenses for review: {', '.join(candidate_only) or 'none'}
+- Manifest generated
+- Portage dependency resolution passed
+- Wayland-only patch applies cleanly
+- Overlay policy passed
+- Sanitized handoff validated{% endraw %}{% endcapture %}
+
+{% capture draft_payload %}{% raw %}## Manual acceptance required before merge
+
+- [ ] Review upstream release notes
+- [ ] Review ebuild / Manifest / Wayland patch diff
+- [ ] Full `emerge -1av =app-editors/zed-{version}::zed-overlay`
+- [ ] Verify linkage (`scanelf` / `lddtree`) remains free of unwanted X11 runtime linkage
+- [ ] Verify native Wayland startup/runtime
+'''
+print(json.dumps({
+    "title": f"[release-bump] Zed v{version}",
+    "head": branch,
+    "base": "main",
+    "draft": True,
+    "body": body,
+}))
+PY
+  )"{% endraw %}{% endcapture %}
+
+{% capture draft_post %}{% raw %}  github_api --fail \
+    --request POST \
+    --header "Content-Type: application/json" \
+    --data "$payload" \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls" \
+    > "$pr_response"{% endraw %}{% endcapture %}
+
+{% capture draft_response %}{% raw %}  pr_url="$(python3 - "$pr_response" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response:
+    url = json.load(response).get("html_url")
+if not isinstance(url, str):
+    raise SystemExit("Created pull request has no URL")
+print(url)
+PY
+  )"{% endraw %}{% endcapture %}
+
+{% capture draft_summary %}{% raw %}  printf 'Created draft automation PR: %s\n' "$pr_url" >> "$GITHUB_STEP_SUMMARY"
+}{% endraw %}{% endcapture %}
+
+## 5.33. Читаем метаданные и лицензии кандидата {#draft-inputs}
+
+{% include source-preview.html source=draft_inputs label="Входные данные Draft PR · строки 136–154" path=script revision=revision start=136 open=true %}
+
+В строке 221 `main()` вызывает `create_draft_pr` после успешного push
+и восстановления `origin`. Строки 137–139 объявляют локальные переменные
+Bash. В `payload` будет JSON для отправки, `pr_response` хранит путь к
+файлу ответа в `$RUNNER_TEMP`, `pr_url` получит строку из ответа.
+
+В строке 141 [подстановка команды]({{ yaml }}#cmd-substitution) сохраняет
+stdout Python в `payload` и убирает завершающие переводы строк.
+`python3 -` читает программу из stdin. Bash подаёт её через
+here-document `<<'PY'`. Кавычки на маркере оставляют текст программы
+без подстановок Bash. Пять аргументов передаются отдельно и в строке 149
+извлекаются из `sys.argv[1:]` в том же порядке. Переменная
+`PYTHONDONTWRITEBYTECODE=1` отключает запись файлов bytecode для этого
+запуска Python.
+
+`sys.path.insert(0, 'scripts')` позволяет импортировать модули из
+каталога `scripts` текущего checkout. `crates_distribution` вычисляет
+имя `zed-<версия>-overlay-crates.json` и читает его из distribution
+bundle. `read_metadata` проверяет файл, схему JSON и соответствие
+версии. Строка 151 читает версионный ebuild в UTF-8. Если при чтении
+или проверке возникнет исключение, Python завершится с ошибкой. Статус
+подстановки станет статусом присваивания `payload`, и `set -e`
+остановит скрипт до POST. Ветка к этому моменту уже отправлена.
+
+Строка 152 объединяет лицензионные выражения из метаданных и разбивает
+их по пробельным символам. `sync_zed_git_crates.license_terms` извлекает
+текст из присваиваний вида `LICENSE="…"` и `LICENSE+="…"` с начала строки
+и тоже разбивает его по пробелам. `generated_only` и `candidate_only`
+содержат отсортированные разности двух множеств. Например, при
+`["Apache-2.0", "MIT"]` в метаданных и `LICENSE="BSD MIT"` в ebuild
+получатся `Apache-2.0` и `BSD` соответственно. Сравнение работает с
+текстовыми элементами. Оно не вычисляет смысл лицензионных выражений,
+условий USE или групп альтернатив.
+
+## 5.34. Собираем тело и JSON для Draft PR {#draft-payload}
+
+{% include source-preview.html source=draft_automated label="Автоматические проверки · строки 155–169" path=script revision=revision start=155 trailing_blank=true open=true %}
+{% include source-preview.html source=draft_payload label="Ручная приёмка и поля JSON · строки 170–186" path=script revision=revision start=170 open=true %}
+
+`body` — Markdown, собранный Python f-строкой. Раздел
+**Automated validation** перечисляет результаты предыдущих шагов.
+В нём есть ссылка на crates release для обнаруженной стабильной
+версии, режим подготовки архива и результат публикации или
+переиспользования. В список входят проверка registry-архива,
+Git-исходников, снимка upstream и публичной загрузки, генерация
+Manifest, разрешение зависимостей Portage, пробное применение Wayland-патча,
+проверка policy и проверка подготовленного handoff. Строки 161–163
+добавляют лицензионные выражения и обе текстовые разности. Пустой список
+в полях для ревью отображается как `none`.
+
+В **Manual acceptance required before merge** остаются просмотр
+upstream release notes и изменений ebuild, Manifest и Wayland-патча,
+полная сборка через `emerge`, проверка линковки через `scanelf` и
+`lddtree`, нативный запуск под Wayland и проверка работы редактора.
+Автоматизация не выполняет полную сборку Zed и runtime acceptance.
+
+`json.dumps` сериализует словарь в JSON и экранирует переводы строк
+и кавычки в теле. `print` передаёт JSON в stdout для подстановки
+в строке 141.
+
+| Поле | Что отправляется |
+| --- | --- |
+| `title` | Заголовок вида `[release-bump] Zed v1.29.0` |
+| `head` | Имя отправленной automation-ветки из `$BRANCH` |
+| `base` | Целевая ветка `main` |
+| `draft` | Python `True` сериализуется в JSON `true` |
+| `body` | Markdown с результатами проверок и ручным чек-листом |
+
+## 5.35. Отправляем POST и читаем html_url {#draft-post}
+
+{% include source-preview.html source=draft_post label="POST и файл ответа · строки 187–192" path=script revision=revision start=187 open=true %}
+{% include source-preview.html source=draft_response label="Разбор ответа GitHub · строки 193–203" path=script revision=revision start=193 open=true %}
+
+[Обёртка `github_api`](#github-api-wrapper) добавляет заголовки
+`Accept`, `Authorization` и версию GitHub API. Строки 187–192
+отправляют запрос к `/repos/$GITHUB_REPOSITORY/pulls`.
+`--request POST` задаёт метод, `--data "$payload"` передаёт
+собранный JSON одним аргументом, а дополнительный заголовок
+`Content-Type: application/json` указывает формат тела.
+Через `>` Bash открывает или обнуляет локальный файл ответа до
+вызова curl. Если открыть его не удаётся, POST пропускается.
+
+Для показанного в лаборатории HTTP `422` параметр `--fail`
+даёт статус curl `22`, и Bash с `set -e` прерывает выполнение
+до разбора JSON. Ошибка транспорта также останавливает скрипт
+на этом вызове. Тело ответа может быть пустым или неполным.
+Отдельной проверки на HTTP `201` в функции нет. Если curl вернул
+`0`, Bash запускает следующий Python here-document.
+
+В строке 198 `json.load` читает JSON, а `.get("html_url")`
+извлекает поле. Некорректный JSON вызывает `JSONDecodeError`.
+Если JSON корректный, но корневое значение, например, список,
+вызов `.get` поднимет `AttributeError`.
+
+| Ответ | Что делает код |
+| --- | --- |
+| Ключ `html_url` отсутствует | `dict.get` возвращает `None`. Проверка типа завершает Python с `Created pull request has no URL`. |
+| Значение `null` или число | Проверка типа выдаёт то же сообщение. |
+| Значение `""` | Проверка типа проходит. `print` выводит перевод строки, Bash удаляет его при подстановке, и `pr_url` остаётся пустой. |
+| Непустая строка | Python печатает строку. Формат URL отдельно не проверяется. |
+
+Ошибки Python дают ненулевой статус присваивания `pr_url`, и
+запись Step Summary пропускается. При пустой строке код доходит
+до записи summary. В отличие от [поиска открытого PR](#empty-api-result),
+здесь нет последующей проверки длины строки.
+
+## 5.36. Записываем результат в Step Summary {#draft-summary}
+
+{% include source-preview.html source=draft_summary label="Запись Step Summary · строки 204–205" path=script revision=revision start=204 open=true %}
+
+`printf` подставляет `pr_url` вместо `%s` и через `>>` дописывает
+строку в файл `$GITHUB_STEP_SUMMARY`. При пустом `pr_url` в строке
+остаётся подпись `Created draft automation PR:`. При успешной
+записи `printf` возвращает `0`. Это последняя команда функции
+и последний вызов из `main()`, поэтому скрипт завершает работу
+с тем же статусом.
+
+Если перенаправление или запись завершатся ошибкой, `set -e`
+остановит скрипт. Например, путь summary в лаборатории указывает
+на каталог, и Bash отказывает ещё до запуска `printf`. Удалённая
+ветка и уже созданный PR при этом остаются.
+
+## 5.37. Сценарии создания Draft PR {#draft-pr-lab}
+
+Во всех сценариях push и восстановление `origin` уже прошли.
+Выберите ответ или ошибку и нажмите на этап, чтобы раскрыть и
+подсветить исходник. FAIL отмечает первую ошибку, SKIP — действия,
+до которых выполнение не дошло. Состояние на сервере задано фикстурой
+и показано отдельно от результата, который получил скрипт.
+Модель работает в браузере с локальными данными.
+
+<script type="application/json" id="publish-draft-fixtures">{{ site.data.publish_draft | jsonify }}</script>
+
+{% capture draft_previews %}
+{% include source-preview.html source=draft_inputs label="Входные данные Draft PR · строки 136–154" path=script revision=revision start=136 %}
+{% include source-preview.html source=draft_automated label="Автоматические проверки · строки 155–169" path=script revision=revision start=155 trailing_blank=true %}
+{% include source-preview.html source=draft_payload label="Ручная приёмка и поля JSON · строки 170–186" path=script revision=revision start=170 %}
+{% include source-preview.html source=draft_post label="POST и файл ответа · строки 187–192" path=script revision=revision start=187 %}
+{% include source-preview.html source=draft_response label="Разбор ответа GitHub · строки 193–203" path=script revision=revision start=193 %}
+{% include source-preview.html source=draft_summary label="Запись Step Summary · строки 204–205" path=script revision=revision start=204 %}
+{% endcapture %}
+{% include publish-lab.html lab="draft-pr" title="Что останется после create_draft_pr?" options="created|invalid_metadata|post_rejected|response_lost|malformed_response|missing_url|numeric_url|blank_url|summary_failed" cases=site.data.publish_draft.draft panels="input:Входные данные|response:Ответ и статус curl|diagnostic:Диагностика первой ошибки|summary:Step Summary|state:Состояние на сервере" initial="При корректном ответе URL черновика записывается в Step Summary." previews=draft_previews gates=site.data.publish_draft.draft_gates %}
+
+## 5.38. Полная карта публикации и повторный запуск {#publication-flow}
+
+`main()` сначала проверяет release diff и ищет открытый PR. При
+непустом URL он пишет summary и завершает работу. Иначе он проверяет
+удалённую ветку, выполняет коммит и push, затем вызывает
+`create_draft_pr`. На карте PASS отмечает завершившийся этап.
+Если Draft PR не удалось обработать до конца, выбор этого этапа
+подсветит команду, на которой остановился скрипт.
+
+{% capture flow_previews %}
+{% include source-preview.html source=main_discovery label="Ранний выход при наличии PR · строки 207–216" path=script revision=revision start=207 trailing_blank=true %}
+{% include source-preview.html source=main_continue label="Переход от поиска к публикации · строки 217–221" path=script revision=revision start=217 %}
+{% include source-preview.html source=ref_case label="Решение по HTTP-статусу · строки 100–111" path=script revision=revision start=100 %}
+{% include source-preview.html source=draft_post label="POST и файл ответа · строки 187–192" path=script revision=revision start=187 %}
+{% endcapture %}
+{% include publish-lab.html lab="publication-flow" title="Где завершится публикация релиза?" options="existing_pr|branch_exists|published|post_failed|response_lost" cases=site.data.publish_draft.flow panels="state:Что осталось после запуска|retry:Что может произойти при повторном запуске" initial="Найденный открытый PR с непустым URL позволяет завершить работу до проверки ветки и push." previews=flow_previews gates=site.data.publish_draft.flow_gates %}
+
+Поиск PR, проверка ветки, push и POST — отдельные операции.
+Если push прошёл, а POST отклонён, ветка может остаться без PR.
+При повторном запуске из свежего checkout поиск без подходящего
+URL приведёт к проверке ветки. HTTP `200` остановит работу
+до нового push и POST.
+
+Сервер может создать PR до того, как клиент получит или обработает
+ответ. Ошибка curl, разбора JSON или записи summary не доказывает,
+что PR отсутствует. Если новый поиск найдёт открытый
+PR для той же пары head/base и вернёт непустой URL, скрипт запишет
+его в summary и завершится до проверки ветки. Если поиск не даст
+URL, а ветка уже видна, сработает та же остановка по HTTP `200`.
+
+На этом путь из главы 02 заканчивается черновиком PR для проверки
+владельцем оверлея. В запланированной главе 03 разбираются Python-скрипты.

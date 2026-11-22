@@ -1,0 +1,140 @@
+draft_gates:
+  - [Прочитать метаданные и ebuild, 136, 154, inputs]
+  - [Собрать JSON для POST, 155, 186, payload]
+  - [Отправить POST и записать ответ, 187, 192, post]
+  - [Извлечь html_url, 193, 203, parse]
+  - [Записать Step Summary, 204, 204, summary]
+flow_gates:
+  - [Проверить release diff, 208, 208, local]
+  - [Найти открытый PR, 209, 209, find]
+  - [Завершить работу с найденным PR, 210, 215, existing]
+  - [Проверить удалённую ветку, 219, 219, ref]
+  - [Создать коммит и отправить ветку, 220, 220, push]
+  - [Создать Draft PR, 221, 221, draft]
+draft:
+  created:
+    label: Draft PR создан
+    status: 0
+    http: 201
+    curl: 0
+    response: '{"html_url":"https://github.example/fixture/overlay/pull/42"}'
+    created: true
+    summary: https://github.example/fixture/overlay/pull/42
+    result: URL записан в Step Summary.
+  invalid_metadata:
+    label: Метаданные не прошли проверку
+    status: 1
+    failure: inputs
+    ranges: {inputs: [150, 150]}
+    metadata: '{}'
+    diagnostic: 'ValueError: Metadata fields do not match schema'
+    result: Python остановился на read_metadata. Присваивание payload вернуло 1.
+  post_rejected:
+    label: POST отклонён с HTTP 422
+    status: 22
+    failure: post
+    http: 422
+    curl: 22
+    response: ''
+    diagnostic: 'curl: (22) The requested URL returned error: 422'
+    result: В этом сценарии сервер отклонил POST, а --fail остановил скрипт до Python.
+  response_lost:
+    label: Ответ на POST потерян
+    status: 52
+    failure: post
+    curl: 52
+    response: ''
+    created: true
+    diagnostic: 'curl: (52) Empty reply from server'
+    result: Сервер создал PR и закрыл соединение до HTTP-ответа. Bash остановился на curl.
+  malformed_response:
+    label: Ответ содержит битый JSON
+    status: 1
+    failure: parse
+    ranges: {parse: [198, 198]}
+    http: 201
+    curl: 0
+    response: '{'
+    created: true
+    diagnostic: 'json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
+    result: Python остановился на json.load. Присваивание pr_url вернуло 1.
+  missing_url:
+    label: В ответе нет html_url
+    status: 1
+    failure: parse
+    ranges: {parse: [198, 200]}
+    http: 201
+    curl: 0
+    response: '{}'
+    created: true
+    diagnostic: Created pull request has no URL
+    result: dict.get вернул None, и Python отклонил значение.
+  numeric_url:
+    label: html_url содержит число
+    status: 1
+    failure: parse
+    ranges: {parse: [198, 200]}
+    http: 201
+    curl: 0
+    response: '{"html_url":42}'
+    created: true
+    diagnostic: Created pull request has no URL
+    result: dict.get вернул число, и Python отклонил значение.
+  blank_url:
+    label: html_url — пустая строка
+    status: 0
+    http: 201
+    curl: 0
+    response: '{"html_url":""}'
+    created: true
+    summary: ''
+    result: Python принял строку. В Step Summary появилась строка с подписью и пустым URL.
+  summary_failed:
+    label: Сбой записи Step Summary
+    status: 1
+    failure: summary
+    http: 201
+    curl: 0
+    response: '{"html_url":"https://github.example/fixture/overlay/pull/42"}'
+    created: true
+    diagnostic: 'Is a directory (конец сообщения Bash при перенаправлении >>)'
+    result: URL извлечён. Bash не смог открыть каталог как файл для дописывания.
+flow:
+  existing_pr:
+    label: Уже есть открытый PR
+    passed: [local, find, existing]
+    focus: existing
+    result: Найден подходящий открытый PR. Записан его URL, скрипт завершился с 0.
+    state: Существующий PR остался открытым. Создание ветки и POST пропущены.
+    retry: Пока поиск возвращает этот PR с непустым URL, повторный запуск идёт тем же путём.
+  branch_exists:
+    label: Есть ветка без открытого PR
+    passed: [local, find]
+    failure: ref
+    ranges: {ref: [102, 105]}
+    result: Поиск не дал URL. HTTP 200 при проверке Git ref останавливает скрипт со статусом 1.
+    state: Удалённая ветка существует. Новый push и POST пропущены.
+    retry: Если ветка по-прежнему есть, а поиск не даёт URL, следующий запуск снова остановится.
+  published:
+    label: Ветка и Draft PR созданы
+    passed: [local, find, ref, push, draft]
+    focus: draft
+    result: HTTP 404 позволил перейти к push. Draft PR создан, URL записан. Скрипт вернул 0.
+    state: Новая ветка и открытый Draft PR существуют. Исходный URL origin восстановлен.
+    retry: Если поиск вернёт открытый PR с непустым URL, следующий запуск запишет его URL и завершится до push.
+  post_failed:
+    label: Ветка есть, POST отклонён
+    passed: [local, find, ref, push]
+    failure: draft
+    ranges: {draft: [187, 192]}
+    result: Push прошёл, но POST отклонён с HTTP 422. Скрипт завершился со статусом 22.
+    state: Новая ветка существует. В этой фикстуре PR не создан, summary не записан.
+    retry: Если PR всё ещё нет, запрос ветки вернёт HTTP 200, и повторный запуск остановится до POST.
+  response_lost:
+    label: PR создан, ответ потерян
+    passed: [local, find, ref, push]
+    failure: draft
+    ranges: {draft: [187, 192]}
+    result: Сервер создал Draft PR. Клиент не получил HTTP-ответ и завершился со статусом 52.
+    state: Новая ветка и открытый Draft PR существуют. Summary этого запуска не записан.
+    retry: Если поиск вернёт открытый PR с непустым URL, следующий запуск запишет его URL и завершится до push.
