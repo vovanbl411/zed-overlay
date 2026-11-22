@@ -140,7 +140,10 @@ in `publish-release-pr.sh`. The owner accepted it, and it was merged into
 Phase 5.2 covered the GitHub REST API, existing PR discovery, and the
 remote branch check. It was merged into `main` in PR #58.
 
-Phase 5.3 covers local branch creation, the Git commit, push, and origin
-restoration in `publish-release-pr.sh`, with interactive failure scenarios.
-It is implemented and awaits owner review. Phase 5.4, covering Draft PR
-creation and the final flow, remains pending.
+Phase 5.3 covered local branch creation, the Git commit, push, and origin
+restoration in `publish-release-pr.sh`. It was accepted and merged into
+`main` in PR #59.
+
+Phase 5.4 covers Draft PR creation, response handling, and the final
+publication flow. The Chapter 02 walkthrough is implemented and awaits
+owner review. Chapter 02 closes after owner acceptance.

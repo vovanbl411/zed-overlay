@@ -12,6 +12,7 @@
         {% assign label = site.data.publish_labs.cases[option] | default: site.data.publish_labs.api_cases[option] | default: site.data.publish_api.parser[option].label | default: option %}
         {% if include.lab == 'environment' and option == 'existing' %}{% assign label = 'Все обязательные значения заданы' %}{% endif %}
         {% if include.lab == 'branch-publish' %}{% assign label = site.data.publish_labs.branch_cases[option].label %}{% endif %}
+        {% if include.cases %}{% assign label = include.cases[option].label %}{% endif %}
         <option value="{{ option | escape }}">{{ label | escape }}</option>
         {% endfor %}
       </select>

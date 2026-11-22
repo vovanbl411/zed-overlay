@@ -403,6 +403,26 @@ function branchPublish(scenario, stages) {
   return {...example, gates, focus: stoppedAt === -1 ? stages.indexOf('disarm') : stoppedAt};
 }
 
+const draft = JSON.parse(document.getElementById('publish-draft-fixtures').textContent);
+
+function draftResult(example) {
+  const response = example.curl === undefined ? skipped
+    : `${example.http ? `HTTP ${example.http}` : 'Ответа HTTP нет'} · curl: ${example.curl}\nzed-release-pr.json: ${example.response || '(пустой файл)'}`;
+  const input = [
+    `Аргументы Python: 1.29.0, ${automationBranch}, generation, reuse, bundle/`,
+    `Метаданные: ${example.metadata ?? 'licenses = ["Apache-2.0", "MIT"] (фрагмент)'}`,
+    'Кандидат: LICENSE="BSD MIT"',
+    `POST /repos/${repository}/pulls`,
+  ].join('\n');
+  const summary = example.summary === undefined ? 'Строка о создании PR не записана'
+    : `Created draft automation PR: ${example.summary || '(пустой URL)'}`;
+  return {
+    ...example, input, response, summary, diagnostic: example.diagnostic ?? 'Ошибок нет',
+    result: `${example.result} Статус выхода: ${example.status}.`,
+    state: example.created ? 'Ветка и Draft PR существуют.' : 'Ветка существует, Draft PR не создан.',
+  };
+}
+
 function highlight(lab, first, last = first) {
   for (const preview of lab.querySelectorAll('[data-source-preview]')) {
     const sourcePath = preview.querySelector('.source-preview-meta code').textContent;
@@ -481,6 +501,19 @@ function initLab(lab) {
         renderReleaseGates(lab, trace.gates);
         selectGate(gates[trace.focus]);
         break;
+      case 'draft-pr':
+      case 'publication-flow': {
+        const stages = gates.map(button => button.closest('[data-api-stage]').dataset.apiStage);
+        trace = kind === 'draft-pr' ? draftResult(draft.draft[scenario.value]) : draft.flow[scenario.value];
+        const failed = stages.indexOf(trace.failure);
+        const passed = trace.passed ?? stages.slice(0, failed === -1 ? stages.length : failed);
+        renderReleaseGates(lab, stages.map(stage => {
+          if (stage === trace.failure) return 'FAIL';
+          return passed.includes(stage) ? 'PASS' : 'SKIP';
+        }));
+        selectGate(gates[failed === -1 ? stages.indexOf(trace.focus ?? 'summary') : failed]);
+        break;
+      }
       case 'api-retry':
       case 'api-errors':
       case 'api-timeline':
