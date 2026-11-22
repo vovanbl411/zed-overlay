@@ -36,6 +36,10 @@ sections:
   - { id: api-first-failure, label: "5.26. Что происходит при ошибках API" }
   - { id: api-decision-map, label: "5.27. Полная карта принятия решения" }
   - { id: publication-races, label: "5.28. Идемпотентность и границы race-condition" }
+  - { id: local-branch-and-commit, label: "5.29. Создаём локальную ветку и коммит" }
+  - { id: origin-cleanup, label: "5.30. Временно меняем origin и восстанавливаем URL" }
+  - { id: push-race, label: "5.31. Что проверяет push после HTTP 404" }
+  - { id: branch-publish-lab, label: "5.32. Сценарии коммита, push и восстановления origin" }
 ---
 
 {% assign revision = '38531d4e4cfe0506f0f5f6b551c60897b6bea83c' %}
@@ -1192,3 +1196,136 @@ assert_remote_branch_absent
 commit_and_push_branch
 create_draft_pr
 ```
+
+## 5.29. Создаём локальную ветку и коммит {#local-branch-and-commit}
+
+{% capture branch_commit %}{% raw %}commit_and_push_branch() {
+  git switch --create "$BRANCH"
+  git config user.name "github-actions[bot]"
+  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git diff --cached --check
+  if git diff --cached --quiet; then
+    echo "ERROR: release handoff would create an empty commit" >&2
+    exit 1
+  fi
+  git commit -m "update: Zed v${CANDIDATE_VERSION}"{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=main_continue label="Вызов из main · строки 217–221" path=script revision=revision start=217 comment="#" %}
+{% include source-preview.html source=branch_commit label="Подготовка коммита · строки 117–126" path=script revision=revision start=117 open=true %}
+
+В строке 220 функция вызывается обычной командой. При входе ожидается,
+что [локальная проверка](#local-boundary) уже подготовила index,
+подходящего открытого PR нет, а запрос Git ref вернул HTTP `404`.
+
+`git switch --create "$BRANCH"` создаёт ветку на текущем коммите
+и переключает на неё `HEAD`. В этом checkout staged diff переходит
+на новую ветку, поскольку исходный коммит тот же. Если имя занято
+локально, команда завершается ошибкой ещё до записи настроек бота.
+Два вызова `git config` записывают имя и email в локальный конфиг
+этого репозитория. Эти настройки задают идентичность для коммита
+и не участвуют в сетевой аутентификации.
+
+В строке 121 повторяется [проверка staged diff на ошибки](#staged-check).
+Повторного сравнения с allowlist здесь нет. Затем
+`git diff --cached --quiet` сравнивает index с `HEAD`. Статус `0`
+означает пустой diff и ведёт к сообщению в stderr и `exit 1`.
+При различиях Git возвращает `1`, Bash пропускает тело `if` и
+доходит до `git commit`. Ошибка самой команды также даёт ненулевой
+статус. Поскольку команда стоит в условии `if`, Bash пропустит
+его тело и продолжит работу даже при включённом `set -e`.
+
+Пустой diff уже при входе в `main()` остановил бы
+[`validate_release_diff`](#compare-paths) из-за отсутствия обязательных
+путей. В этом сценарии лаборатория начинает прямо с функции
+и оставляет index совпадающим с `HEAD`, чтобы показать проверку
+в строках 122–125.
+
+При успехе `git commit -m` записывает снимок index и передвигает
+локальную ветку на новый коммит. Если коммит отклонит локальный
+`pre-commit`, как в лаборатории, Bash выйдет на строке 126.
+Уже созданная ветка и записанная конфигурация бота сохранятся.
+В этой фикстуре hook только возвращает ошибку, поэтому staged diff
+тоже сохраняется.
+
+## 5.30. Временно меняем origin и восстанавливаем URL {#origin-cleanup}
+
+{% capture origin_restore %}{% raw %}restore_origin() {
+  git remote set-url origin "$original_remote"
+}{% endraw %}{% endcapture %}
+
+{% capture origin_push %}{% raw %}  original_remote="$(git remote get-url origin)"
+  trap restore_origin EXIT
+  git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+  git push origin "HEAD:refs/heads/$BRANCH"
+  restore_origin
+  trap - EXIT
+}{% endraw %}{% endcapture %}
+
+{% include source-preview.html source=origin_restore label="Восстановление URL · строки 113–115" path=script revision=revision start=113 open=true %}
+{% include source-preview.html source=origin_push label="Смена URL, push и очистка · строки 128–134" path=script revision=revision start=128 open=true %}
+
+После коммита `git remote get-url origin` возвращает URL, который
+Bash сохраняет в `original_remote` через подстановку команды.
+Если Git не найдёт `origin`, присваивание завершится с ненулевым
+статусом. Bash выйдет через `set -e`, оставив локальный коммит.
+На всех шагах до строки 129 обработчик ещё не установлен и сам
+скрипт ещё не менял URL.
+
+`trap restore_origin EXIT` регистрирует функцию на выход из Bash
+до того, как строка 130 запишет временный HTTPS URL с токеном
+в локальный конфиг Git. Так `git push` получает учётные данные
+для отправки из checkout с `persist-credentials: false`.
+В исходнике показана ссылка на переменную `GITHUB_TOKEN`. В учебных
+результатах значение обозначено как `[REDACTED]`.
+
+После успешного push строка 132 вызывает `restore_origin` напрямую.
+Функция записывает сохранённый URL, а строка 133 снимает обработчик
+командой `trap - EXIT`. Только после этого управление возвращается
+в `main()` к следующему вызову в строке 221.
+
+Если смена URL или push завершается ошибкой, `set -e` ведёт к
+выходу из Bash, при котором установленный обработчик пытается
+восстановить URL. Если ошибку вернёт сам прямой вызов в строке 132,
+Bash выйдет до `trap - EXIT` и при выходе повторит попытку.
+При `SIGKILL` Bash лишён возможности выполнить обработчик.
+При ошибке записи конфига временный URL с токеном может остаться
+на диске даже после попытки очистки. Обработчик меняет только URL
+и не откатывает ветку, коммит, index или настройки бота.
+
+## 5.31. Что проверяет push после HTTP 404 {#push-race}
+
+Refspec `HEAD:refs/heads/$BRANCH` задаёт источник и назначение
+для push. Источник — текущий коммит, назначение — удалённая ветка
+с тем же именем. Если ветки по-прежнему нет, успешный push
+создаёт её. Между ответом [HTTP 404](#publication-races) и
+push другой участник может занять имя. Обычный push без
+`--force` отклонит обновление ветки, если оно требует переписать
+её историю. Если удалённая ветка уже указывает на тот же коммит
+или допускает fast-forward к `HEAD`, push может вернуть успех.
+Проверка по HTTP и отправка ветки выполняются раздельно.
+
+В лаборатории конкурентная ветка указывает на расходящийся коммит.
+После отказа локальная ветка и новый коммит остаются, а обработчик
+восстанавливает `origin`. При сетевом сбое код ошибки push сам по
+себе может не показать, принял ли сервер обновление до разрыва
+соединения. Если push уже успешен, последующий отказ при восстановлении
+URL оставит удалённую ветку и остановит скрипт до вызова в строке 221.
+
+## 5.32. Сценарии коммита, push и восстановления origin {#branch-publish-lab}
+
+Выберите сценарий и нажмите на этап, чтобы подсветить его строки.
+PASS отмечает выполненный шаг, FAIL — ошибку, SKIP — пропущенный
+шаг. После FAIL на push возможен PASS у обработчика `EXIT`.
+Браузер показывает фиксированные результаты Git и Bash без вызовов
+Git или GitHub. Для каждого сценария видно состояние локального
+checkout, удалённой ветки и URL `origin`.
+
+<script type="application/json" id="publish-branch-fixtures">{{ site.data.publish_labs.branch_cases | jsonify }}</script>
+
+{% capture branch_previews %}
+{% include source-preview.html source=main_continue label="Вызов из main · строки 217–221" path=script revision=revision start=217 comment="#" %}
+{% include source-preview.html source=branch_commit label="Подготовка коммита · строки 117–126" path=script revision=revision start=117 %}
+{% include source-preview.html source=origin_push label="Смена URL, push и очистка · строки 128–134" path=script revision=revision start=128 %}
+{% include source-preview.html source=origin_restore label="Восстановление URL · строки 113–115" path=script revision=revision start=113 %}
+{% endcapture %}
+{% include publish-lab.html lab="branch-publish" title="Где остановится публикация ветки?" options="push_ok|empty_diff|branch_collision|commit_rejected|origin_missing|push_rejected|restore_failed" panels="local:Локальный checkout|remote:Удалённая ветка|origin:URL origin после сценария" initial="После успешного push функция восстанавливает origin и снимает обработчик EXIT." previews=branch_previews gates=site.data.publish_labs.branch_publish %}
