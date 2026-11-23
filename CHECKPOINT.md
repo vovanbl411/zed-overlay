@@ -128,7 +128,22 @@ synchronization. It was accepted and merged into `main` in PR #53.
 Phase 4.4 covered the stage3 invocation and temporary Portage configuration.
 It was accepted and merged into `main` in PR #54.
 
-Phase 4.5 covers archive and Manifest checks, dependency resolution, the
+Phase 4.5 covered archive and Manifest checks, dependency resolution, the
 Cargo snapshot, the Wayland patch dry-run, and the files returned to the
-parent script. The complete `independent-crates.sh` walkthrough is ready
-for final owner review. The next Bash script is `publish-release-pr.sh`.
+parent script. The complete `independent-crates.sh` walkthrough was accepted
+and integrated into `main` in PR #55.
+
+Phase 5.1 covered startup, the Git index, and the release diff allowlist
+in `publish-release-pr.sh`. The owner accepted it, and it was merged into
+`main` in PR #57.
+
+Phase 5.2 covered the GitHub REST API, existing PR discovery, and the
+remote branch check. It was merged into `main` in PR #58.
+
+Phase 5.3 covered local branch creation, the Git commit, push, and origin
+restoration in `publish-release-pr.sh`. It was accepted and merged into
+`main` in PR #59.
+
+Phase 5.4 covers Draft PR creation, response handling, and the final
+publication flow. The Chapter 02 walkthrough is implemented and awaits
+owner review. Chapter 02 closes after owner acceptance.

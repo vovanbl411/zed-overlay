@@ -1,0 +1,211 @@
+cases:
+  existing: Существующий неизменённый патч
+  new: Новый патч
+  modified_patch: Существующий патч изменён перед staging
+  missing_ebuild: Новый ebuild отсутствует на диске
+  absent_manifest: Manifest отсутствует и никогда не отслеживался
+  deleted_manifest: Отслеживаемый Manifest удалён
+  extra_staged: Посторонний файл уже в index
+  unchanged_manifest: Manifest не изменился
+  unchanged_patch: PATCH_CREATED=true, но патч не изменился
+  whitespace: Конечный пробел в новой строке
+  marker: Оставшийся маркер конфликта
+  no_diff: Пустой staged diff
+  tracked: Посторонний tracked-файл изменён
+  manifest_after: Manifest отредактирован после staging
+  patch_after: Патч отредактирован после staging
+  untracked: Один untracked-файл
+  multiple: Несколько untracked-файлов
+  ignored: Игнорируемый scratch.tmp
+  package_untracked: Untracked-файл в каталоге пакета
+  unset: RUNNER_TEMP отсутствует
+  empty: BRANCH пуста
+  token: GITHUB_TOKEN отсутствует
+  bundle: DISTRIBUTION_BUNDLE отсутствует
+  bundle_path: Путь передан, но каталога нет
+  version: CANDIDATE_VERSION отсутствует
+  publication: PUBLICATION_RESULT отсутствует
+  pair_invalid: Недопустимая пара reuse:generation
+  version_invalid: Некорректная версия 1.29
+  unstaged_layer: Изменён, ещё не добавлен
+  staged_layer: Изменение уже в index
+  edited_layer: Новая правка после staging
+  new_layer: Новый staged-файл
+  unchanged_layer: Неизменённый tracked-файл
+  untracked_layer: Файл вне index
+  ignored_layer: Игнорируемый файл
+gates:
+  - [Окружение, 4, 15]
+  - [Формат версии, 16, 16]
+  - [Пара режимов, 17, 20]
+  - [Определения функций, 22, 207]
+  - [Вход в main, 224, 224]
+  - [Пути кандидата, 30, 32]
+  - [git add, 33, 33]
+  - [Ошибки staged diff, 34, 34]
+  - [Ожидаемый список, 36, 44]
+  - [Сравнение списков, 45, 53]
+  - [Unstaged tracked, 54, 58]
+  - [Untracked, 59, 63]
+  - [Вызов find_existing_pr доступен, 209, 209]
+workflow:
+  - id: check
+    name: check
+    access: "contents: read"
+    io: "Готовит handoff и bundle. Передаёт handoff_ready, archive_mode и metadata_sha256."
+    remote: Может читать репозиторий. Загрузка артефактов пишет в хранилище Actions.
+    lines: "25–35, 71–89"
+  - id: validate
+    name: validate-release-handoff
+    access: "contents: read"
+    io: "Получает оба артефакта, github.sha и metadata_sha256. Для допуска важен результат job."
+    remote: Может читать репозиторий.
+    lines: "107–147"
+  - id: publish-job
+    name: publish-draft-release-pr
+    access: "contents: write, pull-requests: write"
+    io: "Вход по handoff_ready, успеху validation и refs/heads/main. Checkout main и загрузка обоих артефактов."
+    remote: Токен уже допускает запись. На этом этапе выполняются checkout и скачивание.
+    lines: "149–180"
+  - id: apply
+    name: Apply validated release handoff
+    access: Наследует разрешения задания
+    io: "Сверяет чистый checkout и базовый коммит. Записывает файлы и выдаёт branch, candidate_version, patch_created."
+    remote: Запись разрешена заданию. Этот шаг пишет локальные файлы и выходы Actions.
+    lines: "182–199"
+  - id: policy
+    name: Check overlay policy after handoff apply
+    access: Наследует разрешения задания
+    io: "Читает overlay после применения handoff. Успех позволяет перейти к публикации crates."
+    remote: Запись разрешена заданию. Этот шаг проверяет локальное дерево.
+    lines: "201–202"
+  - id: crates
+    name: Publish validated crates release
+    access: "Токен с contents: write"
+    io: "Получает версию, режим, bundle, handoff, исходный Manifest и хеш метаданных. Возвращает publication_result."
+    remote: Может опубликовать и проверить crates release или проверить существующий.
+    lines: "204–220"
+  - id: script
+    name: publish-release-pr.sh
+    access: "Токен с contents: write и pull-requests: write"
+    io: "Получает выходы check, apply-handoff и publish-crates, а также путь к bundle."
+    remote: В начале проверяет локальный Git diff. Дальнейший успешный путь может отправить ветку и открыть Draft PR.
+    lines: "222–231"
+api_cases:
+  wrapper: Только обёртка
+  pulls: Вызов для списка PR
+  refs: Вызов для Git ref
+  state: state
+  base: base
+  head: head
+  per_page: per_page
+  found_pr: Открытый PR найден
+  absent_pr: Подходящего PR нет, ветка отсутствует
+  closed_pr: Прежний PR закрыт, ветка осталась
+  other_head: Открытый PR с другой исходной веткой
+  other_base: Открытый PR на другую базовую ветку
+  pr_http: Поиск PR получает HTTP 503
+  pr_transport: Отказ соединения при поиске PR
+  pr_bad_json: Некорректный JSON
+  pr_object: Объект вместо массива
+  pr_no_url: Объект без html_url
+  pr_empty_url: html_url — пустая строка
+  ref_conflict: PR не найден, ветка существует
+  ref_unexpected: PR не найден, Git ref отвечает HTTP 403
+  ref_transport: Отказ соединения при проверке Git ref
+  response_write: Файл ответа PR нельзя открыть на запись
+  summary_write: Запись в summary не удалась
+  http404: HTTP 404 · ссылка не найдена
+  http200: HTTP 200 · ссылка найдена
+  http401: HTTP 401 · требуется аутентификация
+  http403: HTTP 403 · доступ запрещён
+  http429: HTTP 429 · ограничение частоты
+  http500: HTTP 500 · ошибка сервера
+  http503: HTTP 503 · сервис недоступен
+  no_connection: Отказ соединения
+  invalid_writeout: Подставленный write-out «oops»
+  empty_writeout: Подставленный пустой write-out
+api_timeline:
+  - [Открыть файл ответа, 75, 75, redirect]
+  - [Запустить curl для GET, 69, 74, request]
+  - [HTTP и результат curl, 69, 75, response]
+  - [Тело ответа в файле, 74, 75, body]
+  - [Запустить Python и прочитать JSON, 76, 90, parse]
+  - [Получить existing_pr_url, 76, 90, url]
+  - [Ветвление main, 210, 215, decision]
+api_decision:
+  - [Проверить локальный diff, 208, 208, local]
+  - [Открыть файл ответа PR, 75, 75, redirect]
+  - [Запросить открытый PR, 69, 75, response]
+  - [Разобрать JSON и получить URL, 76, 90, parse]
+  - [Проверить длину URL, 210, 210, decision]
+  - [Непустой URL → записать summary, 213, 213, summary]
+  - [Завершить работу с 0, 214, 214, done]
+  - [Пустой URL → запросить Git ref, 97, 99, ref]
+  - [Разобрать HTTP-статус Git ref, 100, 110, ref_case]
+  - [Доступен вызов commit_and_push_branch, 220, 220, next]
+branch_publish:
+  - [Войти в функцию из main, 220, 220, call]
+  - [Создать локальную ветку, 118, 118, switch]
+  - [Задать имя и email бота, 119, 120, identity]
+  - [Повторить проверку staged diff, 121, 121, check]
+  - [Проверить наличие изменений, 122, 125, empty]
+  - [Создать коммит, 126, 126, commit]
+  - [Сохранить URL origin, 128, 128, capture]
+  - [Установить обработчик EXIT, 129, 129, trap]
+  - [Временно изменить URL origin, 130, 130, url]
+  - [Отправить HEAD в удалённую ветку, 131, 131, push]
+  - [Вызвать restore_origin напрямую, 132, 132, restore]
+  - [Снять обработчик EXIT, 133, 133, disarm]
+  - [Вызвать restore_origin при выходе, 113, 115, exit_restore]
+branch_cases:
+  push_ok:
+    label: Успешный push
+    result: Push и восстановление origin вернули 0. Обработчик EXIT снят. Управление вернулось в main.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка указывает на новый коммит.
+    origin: Исходный URL восстановлен прямым вызовом в строке 132.
+  empty_diff:
+    label: Пустой staged diff
+    failure: empty
+    result: 'git diff --cached --quiet вернул 0. Скрипт печатает «ERROR: release handoff would create an empty commit» и выходит с 1.'
+    local: Создана и активна automation-ветка на исходном коммите. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  branch_collision:
+    label: Локальная ветка уже существует
+    failure: switch
+    result: git switch --create вернул 128. Bash завершает скрипт в строке 118.
+    local: Активна main. Существующая automation-ветка и staged diff сохранены. Запись имени и email бота пропущена.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  commit_rejected:
+    label: Локальный hook отклонил коммит
+    failure: commit
+    result: В фикстуре pre-commit возвращает 1, и git commit завершается с 1. Bash останавливается в строке 126.
+    local: Активна новая automation-ветка на исходном коммите. Staged diff сохранён, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: Исходный URL. Обработчик EXIT ещё не установлен.
+  origin_missing:
+    label: После коммита Git не находит origin
+    failure: capture
+    result: git remote get-url origin вернул 2. Присваивание в строке 128 возвращает тот же статус, Bash завершает скрипт.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка отсутствует в этой фикстуре.
+    origin: В локальном checkout отсутствует origin. Обработчик EXIT ещё не установлен.
+  push_rejected:
+    label: Гонка после HTTP 404
+    failure: push
+    exit_restore: PASS
+    result: Push отклонён при обновлении без fast-forward и возвращает 1. При выходе со статусом 1 Bash запускает обработчик EXIT.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка, созданная другим участником, сохранила его коммит.
+    origin: Обработчик EXIT восстановил исходный URL.
+  restore_failed:
+    label: Git не может записать исходный URL
+    failure: restore
+    exit_restore: FAIL
+    result: Push вернул 0, но прямая запись исходного URL завершилась с 128. Обработчик EXIT повторяет запись и в этой фикстуре тоже получает 128.
+    local: Активна automation-ветка с новым коммитом. Staged diff пуст, имя и email бота записаны.
+    remote: Ветка указывает на новый коммит.
+    origin: 'Из-за блокировки .git/config остался временный URL с [REDACTED] вместо значения токена.'

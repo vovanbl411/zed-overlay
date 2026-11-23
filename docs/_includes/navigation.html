@@ -12,6 +12,7 @@
           <li><a href="{{ walkthrough | relative_url }}"{% if page.url == walkthrough %} aria-current="page"{% endif %}>Разбор YAML</a></li>
         </ul>
       </li>
+      {% assign publish_script = '/internals/02-shell-scripts/publish-release-pr/' %}
       {% assign acquisition = '/internals/02-shell-scripts/independent-crates/' %}
       {% assign shell_walkthrough = '/internals/02-shell-scripts/validate-release-candidate/' %}
       <li class="chapter-links">
@@ -19,6 +20,7 @@
         <ul>
           <li><a href="{{ shell_walkthrough | relative_url }}"{% if page.url == shell_walkthrough %} aria-current="page"{% endif %}>Подготовка кандидата Zed</a></li>
           <li><a href="{{ acquisition | relative_url }}"{% if page.url == acquisition %} aria-current="page"{% endif %}>Подготовка crates и проверка исходников</a></li>
+          <li><a href="{{ publish_script | relative_url }}"{% if page.url == publish_script %} aria-current="page"{% endif %}>Контролируемая публикация релиза</a></li>
         </ul>
       </li>
       <li class="planned"><span>03</span> Python scripts <small>В планах</small></li>
